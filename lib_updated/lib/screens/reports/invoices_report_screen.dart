@@ -8,6 +8,7 @@ import '../../services/product_service.dart';
 import '../../services/purchase_service.dart';
 import '../../services/sale_service.dart';
 import '../../services/report_export_service.dart';
+import '../../utils/branch_filter.dart';
 
 const _kNavy = Color(0xFF0B2A5B);
 const _kNavyLight = Color(0xFF14336B);
@@ -20,6 +21,7 @@ class _InvoiceRow {
   final String invoiceNo;
   final DateTime? date;
   final String partyName; // customer for a sale, supplier for a purchase
+  final String branchId;
   final String branchName;
   final double gross;
   final double discount;
@@ -35,6 +37,7 @@ class _InvoiceRow {
     required this.invoiceNo,
     required this.date,
     required this.partyName,
+    required this.branchId,
     required this.branchName,
     required this.gross,
     required this.discount,
@@ -64,7 +67,6 @@ class _InvoicesReportScreenState extends State<InvoicesReportScreen> {
   final _invoiceNoController = TextEditingController();
   final _cashierController = TextEditingController();
 
-  String? _branchFilter; // branch id, null = All Branches
   String _invoiceType = 'sales'; // 'sales' | 'purchases' | 'all'
   DateTime _fromDate =
   DateTime.now().subtract(const Duration(days: 21));
@@ -227,7 +229,7 @@ class _InvoicesReportScreenState extends State<InvoicesReportScreen> {
 
   void _resetFilters() {
     setState(() {
-      _branchFilter = null;
+      setSelectedBranch(null, null);
       _invoiceType = 'sales';
       _fromDate = DateTime.now().subtract(const Duration(days: 21));
       _toDate = DateTime.now();
@@ -274,6 +276,15 @@ class _InvoicesReportScreenState extends State<InvoicesReportScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild whenever the branch is changed from the top bar (or from the
+    // dropdown below, which writes to the same notifier).
+    return ValueListenableBuilder<String?>(
+      valueListenable: selectedBranchId,
+      builder: (context, _, __) => _buildReport(context),
+    );
+  }
+
+  Widget _buildReport(BuildContext context) {
     return StreamBuilder<List<Branch>>(
       stream: _branchService.streamBranches(),
       builder: (context, branchSnapshot) {
@@ -364,6 +375,7 @@ class _InvoicesReportScreenState extends State<InvoicesReportScreen> {
           invoiceNo: '${sale.invoiceNumber}',
           date: date,
           partyName: sale.customerName,
+          branchId: sale.branchId,
           branchName: sale.branchName,
           gross: sale.totalAmount,
           discount: sale.discount,
@@ -386,6 +398,7 @@ class _InvoicesReportScreenState extends State<InvoicesReportScreen> {
               : purchase.id,
           date: date,
           partyName: purchase.supplierName,
+          branchId: purchase.branchId,
           branchName: purchase.branchName,
           gross: purchase.totalAmount,
           discount: 0,
@@ -399,12 +412,19 @@ class _InvoicesReportScreenState extends State<InvoicesReportScreen> {
     }
 
     return rows.where((row) {
-      if (_branchFilter != null) {
-        final branch = row.branchName;
-        // branchName is stored on the row directly; branch id match is
-        // handled by comparing against the selected branch's own name
-        // via the dropdown's items (kept simple — see _buildHeaderAndFilters).
-        if (branch != _branchFilterName) return false;
+      // The branch selector in the top bar and the Branch dropdown on this
+      // page are the same app-wide setting (selectedBranchId), so picking a
+      // branch in either place shows only that branch's invoices. Rows are
+      // matched by branch id; older rows saved before an id was recorded
+      // fall back to matching on the branch name.
+      final selectedId = selectedBranchId.value;
+      if (selectedId != null) {
+        final selectedName = selectedBranchName.value;
+        final matches = row.branchId == selectedId ||
+            (row.branchId.isEmpty &&
+                selectedName != null &&
+                row.branchName == selectedName);
+        if (!matches) return false;
       }
       if (row.date != null) {
         final d = DateTime(row.date!.year, row.date!.month, row.date!.day);
@@ -429,8 +449,6 @@ class _InvoicesReportScreenState extends State<InvoicesReportScreen> {
       ..sort((a, b) => (b.date ?? DateTime(2000))
           .compareTo(a.date ?? DateTime(2000)));
   }
-
-  String? _branchFilterName;
 
   Widget _buildHeaderAndFilters(List<Branch> branches, List<_InvoiceRow> rows) {
     return Container(
@@ -546,7 +564,9 @@ class _InvoicesReportScreenState extends State<InvoicesReportScreen> {
                 _filterField(
                   label: 'BRANCH',
                   child: DropdownButtonFormField<String?>(
-                    value: _branchFilter,
+                    value: branches.any((b) => b.id == selectedBranchId.value)
+                        ? selectedBranchId.value
+                        : null,
                     isExpanded: true,
                     dropdownColor: Colors.white,
                     decoration: _filterDecoration(),
@@ -556,15 +576,12 @@ class _InvoicesReportScreenState extends State<InvoicesReportScreen> {
                       ...branches.map((b) => DropdownMenuItem(
                           value: b.id, child: Text(b.name))),
                     ],
-                    onChanged: (v) => setState(() {
-                      _branchFilter = v;
-                      _branchFilterName = v == null
+                    onChanged: (v) {
+                      final name = v == null
                           ? null
-                          : branches
-                          .firstWhere((b) => b.id == v,
-                          orElse: () => branches.first)
-                          .name;
-                    }),
+                          : branches.firstWhere((b) => b.id == v).name;
+                      setSelectedBranch(v, name);
+                    },
                   ),
                 ),
                 _filterField(

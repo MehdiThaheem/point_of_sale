@@ -1,4 +1,3 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../../models/customer.dart';
 import '../../models/product.dart';
@@ -8,11 +7,21 @@ import '../../services/customer_service.dart';
 import '../../services/product_service.dart';
 import '../../services/quotation_service.dart';
 import '../../services/sale_service.dart';
-import '../../services/user_service.dart';
+import '../../utils/branch_context.dart';
+
+// Shared palette so this screen and QuickSaleScreen look like one
+// consistent product, not two different mockups stitched together.
+class _Palette {
+  static const navy = Color(0xFF0B1F3A);
+  static const blue = Color(0xFF2F5FDE);
+  static const green = Color(0xFF12A150);
+  static const amber = Color(0xFFE3A008);
+  static const bg = Color(0xFFF4F6FA);
+  static const cardBorder = Color(0xFFE7EAF0);
+}
 
 // POS-style quick sale: search/tap products to build up the current
-// order on the right, then Save. Matches the "Counter Sale" screen from
-// the reference design — same fields, same panel layout.
+// order on the right, then Save.
 class CounterSaleScreen extends StatefulWidget {
   const CounterSaleScreen({super.key});
 
@@ -22,54 +31,32 @@ class CounterSaleScreen extends StatefulWidget {
 
 class _CounterSaleScreenState extends State<CounterSaleScreen> {
   final SaleService _saleService = SaleService();
-  final UserService _userService = UserService();
   final CustomerService _customerService = CustomerService();
   final ProductService _productService = ProductService();
   final QuotationService _quotationService = QuotationService();
 
   final List<SaleItem> _cart = [];
   final TextEditingController _searchController = TextEditingController();
+  final TextEditingController _invoiceController = TextEditingController();
   final TextEditingController _poController = TextEditingController();
   final TextEditingController _discountController =
   TextEditingController(text: '0');
   final TextEditingController _paidController =
   TextEditingController(text: '0');
-  // Invoice # is editable — we prefill it with the suggested next number
-  // (via the summary bar's StreamBuilder) but the user can overwrite it.
-  final TextEditingController _invoiceController = TextEditingController();
-  bool _invoicePrefilled = false;
   bool _discountIsPercent = false;
   String _paymentMethod = 'Cash';
   Customer? _selectedCustomer;
   bool _saving = false;
 
   @override
-  void dispose() {
-    _searchController.dispose();
-    _poController.dispose();
-    _discountController.dispose();
-    _paidController.dispose();
-    _invoiceController.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _saleService.streamNextInvoiceNumber().first.then((next) {
+      if (mounted) _invoiceController.text = next.toString();
+    });
   }
 
   double get _total => _cart.fold(0, (sum, item) => sum + item.subtotal);
-
-  // See the identical helper in quick_sale_screen.dart for why this
-  // exists — it attributes the sale to whoever is logged in, for the
-  // Invoices Report's Cashier column.
-  Future<String> _currentUserName() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return '';
-    try {
-      final doc = await _userService.getUserProfile(user.uid);
-      final name = doc.data()?['name'] as String?;
-      if (name != null && name.isNotEmpty) return name;
-    } catch (_) {
-      // Fall through to the email-based fallback below.
-    }
-    return user.email?.split('@').first ?? '';
-  }
 
   double get _discount {
     final raw = double.tryParse(_discountController.text.trim()) ?? 0;
@@ -181,6 +168,8 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        shape:
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         title: const Text('Held Quotations'),
         content: SizedBox(
           width: 360,
@@ -231,8 +220,8 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
       return;
     }
 
-    final enteredInvoice = int.tryParse(_invoiceController.text.trim());
-    if (enteredInvoice == null || enteredInvoice <= 0) {
+    final invoiceNumber = int.tryParse(_invoiceController.text.trim());
+    if (invoiceNumber == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Enter a valid invoice number.')),
       );
@@ -241,10 +230,12 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
 
     setState(() => _saving = true);
     try {
-      final cashierName = await _currentUserName();
+      final branch = await resolveCurrentBranch();
       final sale = Sale(
         id: '',
-        invoiceNumber: enteredInvoice,
+        invoiceNumber: invoiceNumber,
+        branchId: branch.id,
+        branchName: branch.name,
         customerId: _selectedCustomer?.id ?? '',
         customerName: _selectedCustomer?.name ?? 'Walk-in',
         poNumber: _poController.text.trim(),
@@ -253,13 +244,16 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
         discount: _discount,
         paidAmount: _paid,
         paymentMethod: _paymentMethod,
-        cashierName: cashierName,
       );
       await _saleService.addSale(sale);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sale #$enteredInvoice saved.')),
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: _Palette.green,
+            content: Text('Sale #$invoiceNumber saved successfully.'),
+          ),
         );
         setState(() {
           _cart.clear();
@@ -267,8 +261,9 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
           _discountController.text = '0';
           _paidController.text = '0';
           _selectedCustomer = null;
-          _invoiceController.clear();
-          _invoicePrefilled = false;
+        });
+        _saleService.streamNextInvoiceNumber().first.then((next) {
+          if (mounted) _invoiceController.text = next.toString();
         });
       }
     } catch (e) {
@@ -284,116 +279,117 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // NOTE: an earlier version of this wrapped everything in
-    // IntrinsicHeight to fix a keyboard-overflow bug, but IntrinsicHeight
-    // can't measure a LayoutBuilder (its size depends on the constraints
-    // it's given, not something intrinsic sizing can compute), so the
-    // whole screen failed to render. This version fixes the original
-    // overflow a different way: on phone-width screens there's no
-    // Expanded at all, so the whole screen just scrolls as one Column and
-    // nothing can ever overflow, keyboard or not. Desktop/tablet keeps
-    // the original side-by-side layout untouched.
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final stacked = constraints.maxWidth < 900;
-          final productPanel = _buildProductPanel();
-          final orderPanel = _buildOrderPanel();
+    return Container(
+      color: _Palette.bg,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSummaryBar(),
+            const SizedBox(height: 16),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final stacked = constraints.maxWidth < 900;
+                final productPanel = _buildProductPanel();
+                final orderPanel = _buildOrderPanel();
 
-          if (stacked) {
-            return SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildSummaryBar(),
-                  const SizedBox(height: 16),
-                  SizedBox(height: 400, child: productPanel),
-                  const SizedBox(height: 16),
-                  orderPanel,
-                ],
-              ),
-            );
-          }
+                if (stacked) {
+                  return Column(
+                    children: [
+                      SizedBox(height: 420, child: productPanel),
+                      const SizedBox(height: 16),
+                      orderPanel,
+                    ],
+                  );
+                }
 
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildSummaryBar(),
-              const SizedBox(height: 16),
-              Expanded(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(flex: 2, child: productPanel),
-                    const SizedBox(width: 16),
-                    SizedBox(width: 360, child: orderPanel),
-                  ],
-                ),
-              ),
-            ],
-          );
-        },
+                return SizedBox(
+                  height: 640,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(flex: 2, child: productPanel),
+                      const SizedBox(width: 16),
+                      SizedBox(width: 360, child: orderPanel),
+                    ],
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 16),
+            _buildRecentSales(),
+          ],
+        ),
       ),
     );
   }
 
   // ================= TOP SUMMARY BAR =================
+  // Every field width is a FRACTION of the available card width (never a
+  // fixed pixel count), so this can never overflow — on a narrow phone
+  // fields simply stack two-per-row instead of squeezing sideways.
 
   Widget _buildSummaryBar() {
-    return StreamBuilder<int>(
-      stream: _saleService.streamNextInvoiceNumber(),
-      builder: (context, invoiceSnapshot) {
-        // Only auto-fill the suggested number the first time it arrives —
-        // after that it's fully in the user's hands.
-        if (!_invoicePrefilled && invoiceSnapshot.hasData) {
-          _invoicePrefilled = true;
-          _invoiceController.text = '${invoiceSnapshot.data}';
-        }
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: const [
-              BoxShadow(color: Color(0x0A000000), blurRadius: 8)
-            ],
-          ),
-          child: Wrap(
-            spacing: 16,
-            runSpacing: 12,
-            crossAxisAlignment: WrapCrossAlignment.end,
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _Palette.cardBorder),
+        boxShadow: const [
+          BoxShadow(color: Color(0x0F1B2B4B), blurRadius: 14, offset: Offset(0, 4)),
+        ],
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final w = constraints.maxWidth;
+          // Roughly how many "slots" fit per row at this width.
+          final cols = w > 1000
+              ? 8
+              : w > 760
+              ? 5
+              : w > 480
+              ? 3
+              : 2;
+          final gap = 14.0;
+          final slotWidth = (w - gap * (cols - 1)) / cols;
+
+          Widget slot(Widget child, {int span = 1}) {
+            final width = slotWidth * span + gap * (span - 1);
+            return SizedBox(width: width, child: child);
+          }
+
+          return Wrap(
+            spacing: gap,
+            runSpacing: 16,
+            crossAxisAlignment: WrapCrossAlignment.start,
             children: [
-              SizedBox(
-                width: 100,
-                child: _summaryField(
-                  'Invoice #',
-                  TextField(
-                    controller: _invoiceController,
-                    keyboardType: TextInputType.number,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                    decoration: _tightDecoration(),
-                  ),
+              slot(_summaryField(
+                'Invoice #',
+                TextField(
+                  controller: _invoiceController,
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                  decoration: _tightDecoration(),
                 ),
-              ),
-              _summaryField(
-                  'Date',
-                  Text(
-                    '${DateTime.now().month}/${DateTime.now().day}/${DateTime.now().year}',
-                  )),
-              SizedBox(
-                width: 220,
-                child: _summaryField(
+              )),
+              slot(_summaryField(
+                'Date',
+                Text(
+                  '${DateTime.now().month}/${DateTime.now().day}/${DateTime.now().year}',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              )),
+              slot(
+                _summaryField(
                   'Customer',
                   StreamBuilder<List<Customer>>(
                     stream: _customerService.streamCustomers(),
                     builder: (context, snapshot) {
                       final customers = snapshot.data ?? [];
                       return DropdownButtonFormField<Customer?>(
-                        value: customers
-                            .any((c) => c.id == _selectedCustomer?.id)
-                            ? _selectedCustomer
-                            : null,
+                        value: _selectedCustomer,
                         isExpanded: true,
                         decoration: _tightDecoration(),
                         hint: const Text('Walk-in'),
@@ -411,23 +407,19 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                     },
                   ),
                 ),
+                span: 2,
               ),
-              SizedBox(
-                width: 120,
-                child: _summaryField(
-                  'PO #',
-                  TextField(
-                      controller: _poController,
-                      decoration: _tightDecoration()),
-                ),
-              ),
-              _summaryField(
+              slot(_summaryField(
+                'PO #',
+                TextField(
+                    controller: _poController, decoration: _tightDecoration()),
+              )),
+              slot(_summaryField(
                   'Total',
                   Text(_total.toStringAsFixed(0),
-                      style: const TextStyle(fontWeight: FontWeight.bold))),
-              SizedBox(
-                width: 130,
-                child: _summaryField(
+                      style: const TextStyle(fontWeight: FontWeight.bold)))),
+              slot(
+                _summaryField(
                   'Discount',
                   Row(
                     children: [
@@ -439,40 +431,49 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                           onChanged: (_) => setState(() {}),
                         ),
                       ),
-                      Checkbox(
-                        value: _discountIsPercent,
-                        onChanged: (v) => setState(
-                                () => _discountIsPercent = v ?? false),
+                      const SizedBox(width: 4),
+                      SizedBox(
+                        width: 40,
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: Checkbox(
+                                value: _discountIsPercent,
+                                onChanged: (v) => setState(
+                                        () => _discountIsPercent = v ?? false),
+                              ),
+                            ),
+                            const Text('%', style: TextStyle(fontSize: 12)),
+                          ],
+                        ),
                       ),
-                      const Text('%'),
                     ],
                   ),
                 ),
+                span: 2,
               ),
-              _summaryField(
+              slot(_summaryField(
                   'Net',
                   Text(_net.toStringAsFixed(0),
                       style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF3159C9)))),
-              SizedBox(
-                width: 100,
-                child: _summaryField(
-                  'Paid',
-                  TextField(
-                    controller: _paidController,
-                    keyboardType: TextInputType.number,
-                    decoration: _tightDecoration(),
-                    onChanged: (_) => setState(() {}),
-                  ),
+                          fontWeight: FontWeight.bold, color: _Palette.blue)))),
+              slot(_summaryField(
+                'Paid',
+                TextField(
+                  controller: _paidController,
+                  keyboardType: TextInputType.number,
+                  decoration: _tightDecoration(),
+                  onChanged: (_) => setState(() {}),
                 ),
-              ),
-              SizedBox(
-                width: 130,
-                child: _summaryField(
+              )),
+              slot(
+                _summaryField(
                   'Payment',
                   DropdownButtonFormField<String>(
                     value: _paymentMethod,
+                    isExpanded: true,
                     decoration: _tightDecoration(),
                     items: const [
                       DropdownMenuItem(value: 'Cash', child: Text('Cash')),
@@ -485,53 +486,65 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                         setState(() => _paymentMethod = v ?? 'Cash'),
                   ),
                 ),
+                span: 2,
               ),
-              SizedBox(
-                height: 46,
-                child: ElevatedButton(
-                  onPressed: _saving ? null : _save,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF16A673),
-                    foregroundColor: Colors.white,
+              slot(
+                SizedBox(
+                  height: 48,
+                  child: ElevatedButton(
+                    onPressed: _saving ? null : _save,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _Palette.green,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: _saving
+                        ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
+                        : const Text('SAVE',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
-                  child: _saving
-                      ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white),
-                  )
-                      : const Text('SAVE'),
                 ),
+                span: 2,
               ),
             ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _summaryField(String label, Widget child) {
-    return SizedBox(
-      width: 90,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label,
-              style: const TextStyle(color: Colors.grey, fontSize: 12)),
-          const SizedBox(height: 4),
-          child,
-        ],
+          );
+        },
       ),
     );
   }
 
+  Widget _summaryField(String label, Widget child) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(label,
+            style: const TextStyle(
+                color: Colors.grey, fontSize: 12, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 6),
+        child,
+      ],
+    );
+  }
+
   InputDecoration _tightDecoration() {
-    return const InputDecoration(
+    return InputDecoration(
       isDense: true,
-      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      border: OutlineInputBorder(),
+      contentPadding:
+      const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      filled: true,
+      fillColor: _Palette.bg,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide.none,
+      ),
     );
   }
 
@@ -541,20 +554,38 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: const [BoxShadow(color: Color(0x0A000000), blurRadius: 8)],
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _Palette.cardBorder),
+        boxShadow: const [
+          BoxShadow(color: Color(0x0F1B2B4B), blurRadius: 14, offset: Offset(0, 4)),
+        ],
       ),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Row(
+            children: [
+              Icon(Icons.storefront_outlined, color: _Palette.blue, size: 20),
+              const SizedBox(width: 8),
+              const Text('Products',
+                  style:
+                  TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+            ],
+          ),
+          const SizedBox(height: 10),
           TextField(
             controller: _searchController,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               hintText: 'Search Product...',
-              prefixIcon: Icon(Icons.search),
-              border: OutlineInputBorder(),
+              prefixIcon: const Icon(Icons.search),
+              filled: true,
+              fillColor: _Palette.bg,
               isDense: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide.none,
+              ),
             ),
             onChanged: (_) => setState(() {}),
           ),
@@ -581,7 +612,7 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                   gridDelegate:
                   const SliverGridDelegateWithMaxCrossAxisExtent(
                     maxCrossAxisExtent: 170,
-                    childAspectRatio: 1.3,
+                    childAspectRatio: 1.25,
                     crossAxisSpacing: 10,
                     mainAxisSpacing: 10,
                   ),
@@ -594,15 +625,23 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                       child: Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFF5F7FA),
+                          color: _Palette.bg,
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: Colors.grey.shade200),
+                          border: Border.all(color: _Palette.cardBorder),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(Icons.inventory_2_outlined,
-                                color: Colors.blueGrey.shade300, size: 28),
+                            Container(
+                              width: 34,
+                              height: 34,
+                              decoration: BoxDecoration(
+                                color: _Palette.blue.withOpacity(0.10),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(Icons.inventory_2_outlined,
+                                  color: _Palette.blue, size: 18),
+                            ),
                             const Spacer(),
                             Text(product.name,
                                 maxLines: 2,
@@ -613,11 +652,12 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                             const SizedBox(height: 4),
                             Text(
                               'Rs ${product.salePrice.toStringAsFixed(0)}',
-                              style: const TextStyle(
-                                  color: Color(0xFF3159C9),
+                              style: TextStyle(
+                                  color: _Palette.blue,
                                   fontWeight: FontWeight.bold),
                             ),
-                            Text('Stock: ${product.currentStock.toStringAsFixed(0)}',
+                            Text(
+                                'Stock: ${product.currentStock.toStringAsFixed(0)}',
                                 style: const TextStyle(
                                     color: Colors.grey, fontSize: 11)),
                           ],
@@ -639,8 +679,12 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
   Widget _buildOrderPanel() {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF03213D),
-        borderRadius: BorderRadius.circular(12),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [_Palette.navy, Color(0xFF122A4E)],
+        ),
+        borderRadius: BorderRadius.circular(14),
       ),
       padding: const EdgeInsets.all(16),
       child: SingleChildScrollView(
@@ -732,10 +776,14 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
               child: ElevatedButton(
                 onPressed: _cart.isEmpty ? null : _holdQuotation,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFE8A900),
+                  backgroundColor: _Palette.amber,
                   foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
                 ),
-                child: const Text('SAVE QUOTATION'),
+                child: const Text('SAVE QUOTATION',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
               ),
             ),
           ],
@@ -756,10 +804,98 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
           Text(
             'Rs ${value.toStringAsFixed(0)}',
             style: TextStyle(
-              color: highlight ? const Color(0xFFE8A900) : Colors.white,
+              color: highlight ? _Palette.amber : Colors.white,
               fontWeight: FontWeight.bold,
               fontSize: highlight ? 16 : 14,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ================= RECENT SALES (visible right here too) =================
+
+  Widget _buildRecentSales() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _Palette.cardBorder),
+        boxShadow: const [
+          BoxShadow(color: Color(0x0F1B2B4B), blurRadius: 14, offset: Offset(0, 4)),
+        ],
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.history, color: _Palette.blue, size: 20),
+              const SizedBox(width: 8),
+              const Text('Recent Sales',
+                  style:
+                  TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          StreamBuilder<List<Sale>>(
+            stream: _saleService.streamSales(),
+            builder: (context, snapshot) {
+              final sales = (snapshot.data ?? []).take(6).toList();
+              if (sales.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Text('No sales recorded yet.',
+                      style: TextStyle(color: Colors.grey)),
+                );
+              }
+              return Column(
+                children: sales.map((sale) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 34,
+                          height: 34,
+                          decoration: BoxDecoration(
+                            color: _Palette.green.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(Icons.receipt_long_outlined,
+                              color: _Palette.green, size: 18),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '#${sale.invoiceNumber} · ${sale.customerName}',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              Text(
+                                '${sale.items.length} item(s) · ${sale.paymentMethod}',
+                                style: const TextStyle(
+                                    color: Colors.grey, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          'Rs ${sale.netAmount.toStringAsFixed(0)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              );
+            },
           ),
         ],
       ),

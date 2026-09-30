@@ -5,8 +5,16 @@ class SalaryPayment {
   final String employeeId;
   final String employeeName;
   final String month; // e.g. "September 2026"
-  final double amount;
+  final double amount; // amount actually paid
   final String notes;
+
+  // Optional breakdown used by the Salary Sheet. Old records don't have
+  // these, so they all default to 0 / empty and keep working.
+  final double basic;
+  final double deduction;
+  final String deductionReason;
+  final double incentive;
+
   final Timestamp? createdAt;
 
   SalaryPayment({
@@ -16,6 +24,10 @@ class SalaryPayment {
     required this.month,
     required this.amount,
     this.notes = '',
+    this.basic = 0,
+    this.deduction = 0,
+    this.deductionReason = '',
+    this.incentive = 0,
     this.createdAt,
   });
 
@@ -27,6 +39,10 @@ class SalaryPayment {
       month: map['month'] ?? '',
       amount: (map['amount'] ?? 0).toDouble(),
       notes: map['notes'] ?? '',
+      basic: (map['basic'] ?? 0).toDouble(),
+      deduction: (map['deduction'] ?? 0).toDouble(),
+      deductionReason: map['deductionReason'] ?? '',
+      incentive: (map['incentive'] ?? 0).toDouble(),
       createdAt: map['createdAt'],
     );
   }
@@ -38,6 +54,10 @@ class SalaryPayment {
       'month': month,
       'amount': amount,
       'notes': notes,
+      'basic': basic,
+      'deduction': deduction,
+      'deductionReason': deductionReason,
+      'incentive': incentive,
       'createdAt': createdAt ?? FieldValue.serverTimestamp(),
     };
   }

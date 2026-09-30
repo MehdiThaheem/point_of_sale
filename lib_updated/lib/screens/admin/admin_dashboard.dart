@@ -4,12 +4,6 @@ import 'package:flutter/material.dart';
 import '../../models/branch.dart';
 import '../../services/auth_service.dart';
 import '../../services/branch_service.dart';
-import '../../services/customer_service.dart';
-import '../../services/employee_service.dart';
-import '../../services/product_service.dart';
-import '../../services/purchase_service.dart';
-import '../../services/sale_service.dart';
-import '../../services/supplier_service.dart';
 import '../../services/user_service.dart';
 import '../../utils/branch_filter.dart';
 import '../../widgets/profile_avatar.dart';
@@ -20,6 +14,7 @@ import '../accounting/salary_sheet_screen.dart';
 import '../areas/areas_screen.dart';
 import '../attendance/attendance_screen.dart';
 import '../branches/branches_screen.dart';
+import 'dashboard_home.dart';
 import '../brands/brands_screen.dart';
 import '../categories/categories_screen.dart';
 import '../delete_invoice/delete_invoice_screen.dart';
@@ -61,12 +56,6 @@ class AdminDashboard extends StatefulWidget {
 class _AdminDashboardState extends State<AdminDashboard> {
   final AuthService _authService = AuthService();
   final UserService _userService = UserService();
-  final ProductService _productService = ProductService();
-  final SaleService _saleService = SaleService();
-  final PurchaseService _purchaseService = PurchaseService();
-  final CustomerService _customerService = CustomerService();
-  final SupplierService _supplierService = SupplierService();
-  final EmployeeService _employeeService = EmployeeService();
   final BranchService _branchService = BranchService();
 
   String selectedKey = 'dashboard';
@@ -624,298 +613,16 @@ class _AdminDashboardState extends State<AdminDashboard> {
   // ================= DASHBOARD =================
 
   Widget _buildDashboard() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ValueListenableBuilder<String?>(
-          valueListenable: selectedBranchName,
-          builder: (context, branchName, _) {
-            return Text(
-              branchName == null
-                  ? 'Welcome back, Admin 👋'
-                  : 'Welcome back, Admin — $branchName 👋',
-              style:
-              const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
-            );
-          },
-        ),
-        const SizedBox(height: 6),
-        const Text('Here is your business overview.',
-            style: TextStyle(color: Colors.grey, fontSize: 14)),
-        const SizedBox(height: 25),
-        GridView(
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 230,
-            crossAxisSpacing: 18,
-            mainAxisSpacing: 18,
-            childAspectRatio: 1.7,
-          ),
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          children: [
-            _statCardStream(
-              title: 'Stock',
-              icon: Icons.inventory_2_outlined,
-              color: const Color(0xFF299FB0),
-              stream: _productService.streamProducts().map((list) =>
-                  list.fold<double>(0, (sum, p) => sum + p.currentStock)),
-            ),
-            _statCardStream(
-              title: 'Sales',
-              icon: Icons.point_of_sale_outlined,
-              color: const Color(0xFF3159C9),
-              stream: _saleService.streamSales().map((list) =>
-                  list.fold<double>(0, (sum, s) => sum + s.totalAmount)),
-            ),
-            _statCardStream(
-              title: 'Purchase',
-              icon: Icons.shopping_bag_outlined,
-              color: const Color(0xFF16A673),
-              stream: _purchaseService.streamPurchases().map((list) =>
-                  list.fold<double>(0, (sum, p) => sum + p.totalAmount)),
-            ),
-            _statCardStream(
-              title: 'Receivable',
-              icon: Icons.person_add_alt_1_outlined,
-              color: const Color(0xFFE8A900),
-              stream: _customerService.streamCustomers().map((list) =>
-                  list.fold<double>(0, (sum, c) => sum + c.totalReceivable)),
-            ),
-            _statCardStream(
-              title: 'Payable',
-              icon: Icons.person_remove_outlined,
-              color: const Color(0xFFD9362F),
-              stream: _supplierService.streamSuppliers().map((list) =>
-                  list.fold<double>(0, (sum, s) => sum + s.totalPayable)),
-            ),
-            _statCardStream(
-              title: 'Customers',
-              icon: Icons.people_outline,
-              color: const Color(0xFFE8A900),
-              stream: _customerService
-                  .streamCustomers()
-                  .map((list) => list.length.toDouble()),
-              isCount: true,
-            ),
-            _statCardStream(
-              title: 'Suppliers',
-              icon: Icons.local_shipping_outlined,
-              color: const Color(0xFF7B61C9),
-              stream: _supplierService
-                  .streamSuppliers()
-                  .map((list) => list.length.toDouble()),
-              isCount: true,
-            ),
-            _statCardStream(
-              title: 'Employees',
-              icon: Icons.badge_outlined,
-              color: const Color(0xFF299FB0),
-              stream: _employeeService
-                  .streamEmployees()
-                  .map((list) => list.length.toDouble()),
-              isCount: true,
-            ),
-          ],
-        ),
-        const SizedBox(height: 25),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final stackVertically = constraints.maxWidth < 700;
-            if (stackVertically) {
-              return Column(
-                children: [
-                  _buildSalesOverview(),
-                  const SizedBox(height: 20),
-                  _buildQuickActions(),
-                ],
-              );
-            }
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(flex: 2, child: _buildSalesOverview()),
-                const SizedBox(width: 20),
-                Expanded(child: _buildQuickActions()),
-              ],
-            );
-          },
-        ),
-        const SizedBox(height: 20),
-        _buildRecentActivity(),
-      ],
-    );
-  }
-
-  Widget _statCardStream({
-    required String title,
-    required IconData icon,
-    required Color color,
-    required Stream<double> stream,
-    bool isCount = false,
-  }) {
-    return StreamBuilder<double>(
-      stream: stream,
-      builder: (context, snapshot) {
-        final value = snapshot.data ?? 0;
-        final display =
-        isCount ? value.toInt().toString() : value.toStringAsFixed(0);
-        return _statCard(title: title, value: display, icon: icon, color: color);
+    return DashboardHome(
+      onAddProduct: () {
+        setState(() => _expandedGroups.add('inventory_group'));
+        _select('items');
       },
-    );
-  }
-
-  Widget _statCard({
-    required String title,
-    required String value,
-    required IconData icon,
-    required Color color,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.18),
-              borderRadius: BorderRadius.circular(13),
-            ),
-            child: Icon(icon, color: Colors.white, size: 25),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontSize: 13)),
-                const SizedBox(height: 5),
-                Text(value,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 21,
-                        fontWeight: FontWeight.bold)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSalesOverview() {
-    return Container(
-      height: 300,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [BoxShadow(color: Color(0x10000000), blurRadius: 10)],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Sales Overview',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 5),
-          const Text('Monthly sales performance',
-              style: TextStyle(color: Colors.grey, fontSize: 12)),
-          Expanded(
-            child: Center(
-              child: Icon(Icons.bar_chart_rounded,
-                  size: 90, color: blue.withOpacity(0.25)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildQuickActions() {
-    return Container(
-      height: 300,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [BoxShadow(color: Color(0x10000000), blurRadius: 10)],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Quick Actions',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 18),
-          _quickAction('Add Product', Icons.add_box_outlined, onTap: () {
-            setState(() => _expandedGroups.add('inventory_group'));
-            _select('items');
-          }),
-          _quickAction('New Purchase', Icons.shopping_cart_outlined,
-              onTap: () => _select('purchases')),
-          _quickAction('Add Customer', Icons.person_add_outlined, onTap: () {
-            setState(() => _expandedGroups.add('administration'));
-            _select('parties');
-          }),
-        ],
-      ),
-    );
-  }
-
-  Widget _quickAction(String title, IconData icon, {VoidCallback? onTap}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: SizedBox(
-        width: double.infinity,
-        height: 43,
-        child: OutlinedButton.icon(
-          onPressed: onTap ?? () {},
-          icon: Icon(icon, size: 19),
-          label: Text(title),
-          style: OutlinedButton.styleFrom(
-            alignment: Alignment.centerLeft,
-            shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRecentActivity() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: const [BoxShadow(color: Color(0x10000000), blurRadius: 10)],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: const [
-          Text('Recent Activity',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          SizedBox(height: 20),
-          Center(
-            child: Padding(
-              padding: EdgeInsets.all(25),
-              child: Text('No recent activity',
-                  style: TextStyle(color: Colors.grey)),
-            ),
-          ),
-        ],
-      ),
+      onNewPurchase: () => _select('purchases'),
+      onAddCustomer: () {
+        setState(() => _expandedGroups.add('administration'));
+        _select('parties');
+      },
     );
   }
 
