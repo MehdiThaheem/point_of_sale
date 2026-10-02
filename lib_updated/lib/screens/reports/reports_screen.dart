@@ -7,6 +7,7 @@ import '../../services/product_service.dart';
 import '../../services/raw_material_service.dart';
 import '../../models/purchase.dart';
 import '../../models/sales.dart';
+import '../../utils/branch_filter.dart';
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
@@ -23,6 +24,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Follows the branch chosen in the top bar (fixed for Managers).
+    return ValueListenableBuilder<String?>(
+      valueListenable: selectedBranchId,
+      builder: (context, branchId, _) => _body(branchId),
+    );
+  }
+
+  Widget _body(String? branchId) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -39,12 +48,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
         StreamBuilder<List<Sale>>(
           stream: _saleService.streamSales(),
           builder: (context, saleSnapshot) {
-            final sales = saleSnapshot.data ?? [];
+            final sales = (saleSnapshot.data ?? <Sale>[])
+                .where((s) => branchId == null || s.branchId == branchId)
+                .toList();
 
             return StreamBuilder<List<Purchase>>(
               stream: _purchaseService.streamPurchases(),
               builder: (context, purchaseSnapshot) {
-                final purchases = purchaseSnapshot.data ?? [];
+                final purchases = (purchaseSnapshot.data ?? <Purchase>[])
+                    .where((p) => branchId == null || p.branchId == branchId)
+                    .toList();
 
                 final totalSales = sales.fold<double>(
                     0, (sum, s) => sum + s.totalAmount);
@@ -102,13 +115,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
           stream: _productService.streamProducts(),
           builder: (context, productSnapshot) {
             final lowProducts =
-            (productSnapshot.data ?? []).where((p) => p.isLowStock).toList();
+            (productSnapshot.data ?? <Product>[])
+                .where((p) =>
+            (branchId == null || p.branchId == branchId) &&
+                p.isLowStock)
+                .toList();
 
             return StreamBuilder<List<RawMaterial>>(
               stream: _rawMaterialService.streamRawMaterials(),
               builder: (context, rawSnapshot) {
-                final lowRaw = (rawSnapshot.data ?? [])
-                    .where((r) => r.isLowStock)
+                final lowRaw = (rawSnapshot.data ?? <RawMaterial>[])
+                    .where((r) =>
+                (branchId == null || r.branchId == branchId) &&
+                    r.isLowStock)
                     .toList();
 
                 if (lowProducts.isEmpty && lowRaw.isEmpty) {

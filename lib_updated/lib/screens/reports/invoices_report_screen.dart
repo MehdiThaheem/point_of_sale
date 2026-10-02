@@ -1,4 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import '../../models/branch.dart';
 import '../../models/product.dart';
 import '../../models/purchase.dart';
@@ -486,17 +489,24 @@ class _InvoicesReportScreenState extends State<InvoicesReportScreen> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Row(
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 4,
                     children: [
-                      const Icon(Icons.business,
-                          color: Colors.white70, size: 14),
-                      const SizedBox(width: 4),
-                      const Text(
-                        'All Branches Invoice Management',
-                        style:
-                        TextStyle(color: Colors.white70, fontSize: 12),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Icon(Icons.business,
+                              color: Colors.white70, size: 14),
+                          SizedBox(width: 4),
+                          Text(
+                            'All Branches Invoice Management',
+                            style: TextStyle(
+                                color: Colors.white70, fontSize: 12),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 2),
@@ -786,30 +796,37 @@ class _InvoicesReportScreenState extends State<InvoicesReportScreen> {
                   collapsed ? const Radius.circular(10) : Radius.zero,
                 ),
               ),
-              child: Row(
+              child: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 6,
                 children: [
-                  Icon(collapsed ? Icons.chevron_right : Icons.expand_more,
-                      size: 20),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: _kNavy,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Icon(Icons.apartment,
-                        color: Colors.white, size: 16),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                          collapsed
+                              ? Icons.chevron_right
+                              : Icons.expand_more,
+                          size: 20),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: _kNavy,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Icon(Icons.apartment,
+                            color: Colors.white, size: 16),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 10),
                   Text(branchName,
                       style: const TextStyle(fontWeight: FontWeight.bold)),
-                  if (branchNumber.isNotEmpty) ...[
-                    const SizedBox(width: 8),
+                  if (branchNumber.isNotEmpty)
                     Text('Branch ID: $branchNumber',
                         style: const TextStyle(
                             color: Colors.grey, fontSize: 12)),
-                  ],
-                  const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 8, vertical: 2),
@@ -928,7 +945,7 @@ class _InvoicesReportScreenState extends State<InvoicesReportScreen> {
                           backgroundColor: _kApplyBlue,
                           foregroundColor: Colors.white,
                         ),
-                        onPressed: () => _showInvoiceDetail(row),
+                        onPressed: () => _showInvoiceDetail(row, branches),
                       )),
                     ]);
                   }),
@@ -988,24 +1005,33 @@ class _InvoicesReportScreenState extends State<InvoicesReportScreen> {
     rows.fold<double>(0, (sum, r) => sum + (r.profit ?? 0));
 
     Widget cell(String label, String value, {Color? color}) {
-      return Expanded(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              if (label.isNotEmpty)
-                Text(label,
-                    style:
-                    const TextStyle(color: Colors.grey, fontSize: 11)),
-              Text(value,
-                  style: TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 15, color: color)),
-            ],
-          ),
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (label.isNotEmpty)
+              Text(label,
+                  style: const TextStyle(color: Colors.grey, fontSize: 11)),
+            Text(value,
+                style: TextStyle(
+                    fontWeight: FontWeight.bold, fontSize: 15, color: color)),
+          ],
         ),
       );
     }
+
+    final label = Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 6,
+      children: [
+        const Text('OVERALL TOTAL',
+            style: TextStyle(fontWeight: FontWeight.bold)),
+        Text('(${rows.length} invoices)',
+            style: const TextStyle(color: Colors.grey, fontSize: 12)),
+      ],
+    );
 
     return Container(
       decoration: BoxDecoration(
@@ -1013,29 +1039,57 @@ class _InvoicesReportScreenState extends State<InvoicesReportScreen> {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0xFFCBD8F5)),
       ),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 2,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Five columns' worth of numbers plus a label don't fit on a
+          // phone-width screen no matter how they're squeezed, so below
+          // this width the label moves above a wrapping row of values
+          // instead of everything overflowing sideways.
+          if (constraints.maxWidth < 480) {
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('OVERALL TOTAL',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(width: 6),
-                  Text('(${rows.length} invoices)',
-                      style: const TextStyle(
-                          color: Colors.grey, fontSize: 12)),
+                  label,
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 20,
+                    runSpacing: 10,
+                    children: [
+                      cell('Gross', gross.toStringAsFixed(2)),
+                      cell('Discount', discount.toStringAsFixed(2),
+                          color: Colors.redAccent),
+                      cell('Net Bill', netBill.toStringAsFixed(2)),
+                      cell('Profit', profit.toStringAsFixed(2),
+                          color: Colors.green.shade700),
+                    ],
+                  ),
                 ],
               ),
-            ),
-          ),
-          cell('', gross.toStringAsFixed(2)),
-          cell('', discount.toStringAsFixed(2), color: Colors.redAccent),
-          cell('', netBill.toStringAsFixed(2)),
-          cell('', profit.toStringAsFixed(2), color: Colors.green.shade700),
-        ],
+            );
+          }
+
+          return Row(
+            children: [
+              Expanded(
+                flex: 2,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: label,
+                ),
+              ),
+              Expanded(child: cell('', gross.toStringAsFixed(2))),
+              Expanded(
+                  child: cell('', discount.toStringAsFixed(2),
+                      color: Colors.redAccent)),
+              Expanded(child: cell('', netBill.toStringAsFixed(2))),
+              Expanded(
+                  child: cell('', profit.toStringAsFixed(2),
+                      color: Colors.green.shade700)),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1072,51 +1126,287 @@ class _InvoicesReportScreenState extends State<InvoicesReportScreen> {
     );
   }
 
-  void _showInvoiceDetail(_InvoiceRow row) {
+  void _showInvoiceDetail(_InvoiceRow row, List<Branch> branches) {
+    final matches = branches.where((b) => b.name == row.branchName);
+    final branch = matches.isNotEmpty ? matches.first : null;
+
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(
-            '${row.isSale ? "Sale" : "Purchase"} Invoice #${row.invoiceNo}'),
-        content: SizedBox(
-          width: 380,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(row.isSale ? 'Customer: ${row.partyName}'
-                  : 'Supplier: ${row.partyName}'),
-              Text('Branch: ${row.branchName.isEmpty ? "-" : row.branchName}'),
-              Text('Date: ${_formatDate(row.date)} ${_formatTime(row.date)}'),
-              const Divider(height: 20),
-              if (row.sale != null)
-                ...row.sale!.items.map((i) => Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(
-                      '${i.productName}  x${i.quantity}  =  ${i.subtotal.toStringAsFixed(2)}'),
-                )),
-              if (row.purchase != null)
-                ...row.purchase!.items.map((i) => Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(
-                      '${i.itemName}  x${i.quantity}  =  ${i.subtotal.toStringAsFixed(2)}'),
-                )),
-              const Divider(height: 20),
-              Text('Gross: ${row.gross.toStringAsFixed(2)}'),
-              Text('Discount: ${row.discount.toStringAsFixed(2)}'),
-              Text('Net Bill: ${row.netBill.toStringAsFixed(2)}',
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
-              if (row.profit != null)
-                Text('Profit: ${row.profit!.toStringAsFixed(2)}'),
-            ],
+      builder: (ctx) => Dialog.fullscreen(
+        backgroundColor: const Color(0xFFF5F7FA),
+        child: Column(
+          children: [
+            // Thin app-level control bar — not part of the printed
+            // invoice itself, just Close/Print for the on-screen view.
+            Container(
+              width: double.infinity,
+              color: Colors.white,
+              padding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: SafeArea(
+                bottom: false,
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close),
+                    ),
+                    const Spacer(),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.black87,
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: () => _printInvoice(row, branch),
+                      icon: const Icon(Icons.print_outlined, size: 16),
+                      label: const Text('Print'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 700),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey.shade200),
+                      ),
+                      child: _invoiceSlipContent(row, branch),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // The visual layout replicated here matches the printed PDF built by
+  // ReportExportService.printInvoiceSlip so what's on screen is what
+  // gets printed.
+  Widget _invoiceSlipContent(_InvoiceRow row, Branch? branch) {
+    final items = row.isSale
+        ? (row.sale?.items ?? []).map((i) => InvoiceLineItem(
+      description: i.productName,
+      qty: i.quantity.toStringAsFixed(2),
+      unitPrice: i.unitPrice.toStringAsFixed(2),
+      total: i.subtotal.toStringAsFixed(2),
+    ))
+        : (row.purchase?.items ?? []).map((i) => InvoiceLineItem(
+      description: i.itemName,
+      qty: i.quantity.toStringAsFixed(2),
+      unitPrice: i.unitCost.toStringAsFixed(2),
+      total: i.subtotal.toStringAsFixed(2),
+    ));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              radius: 26,
+              backgroundColor: const Color(0xFFEDF1FB),
+              backgroundImage: (branch?.logoUrl.isNotEmpty ?? false)
+                  ? NetworkImage(branch!.logoUrl)
+                  : null,
+              child: (branch?.logoUrl.isEmpty ?? true)
+                  ? const Icon(Icons.apartment, color: _kNavy)
+                  : null,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    (branch?.name ?? row.branchName).toUpperCase(),
+                    style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: _kNavy),
+                  ),
+                  if ((branch?.address ?? '').isNotEmpty)
+                    Text(branch!.address,
+                        style: const TextStyle(fontSize: 12)),
+                  if ((branch?.contact ?? '').isNotEmpty)
+                    Text('Contact: ${branch!.contact}',
+                        style: const TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(height: 2, color: _kNavy),
+        const SizedBox(height: 18),
+        Text(row.isSale ? 'BILL TO:' : 'SUPPLIER:',
+            style: const TextStyle(color: Colors.grey, fontSize: 11)),
+        Text(row.partyName,
+            style: const TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 10),
+        Text(
+            '${row.isSale ? "Sale" : "Purchase"} Invoice #: ${row.invoiceNo}',
+            style: const TextStyle(fontWeight: FontWeight.bold)),
+        Text('Date: ${_formatDate(row.date)} ${_formatTime(row.date)}'),
+        const SizedBox(height: 18),
+        Table(
+          border: TableBorder.all(color: Colors.grey.shade300, width: 0.5),
+          columnWidths: const {
+            0: FlexColumnWidth(0.6),
+            1: FlexColumnWidth(3),
+            2: FlexColumnWidth(1),
+            3: FlexColumnWidth(1.4),
+            4: FlexColumnWidth(1.4),
+          },
+          children: [
+            TableRow(
+              decoration: const BoxDecoration(color: _kNavy),
+              children: const [
+                _SlipCell('SR#', bold: true, color: Colors.white),
+                _SlipCell('PRODUCT DESCRIPTION',
+                    bold: true, color: Colors.white),
+                _SlipCell('QTY',
+                    bold: true, color: Colors.white, right: true),
+                _SlipCell('UNIT PRICE',
+                    bold: true, color: Colors.white, right: true),
+                _SlipCell('TOTAL',
+                    bold: true, color: Colors.white, right: true),
+              ],
+            ),
+            for (final entry in items.toList().asMap().entries)
+              TableRow(children: [
+                _SlipCell('${entry.key + 1}'),
+                _SlipCell(entry.value.description),
+                _SlipCell(entry.value.qty, right: true),
+                _SlipCell(entry.value.unitPrice, right: true),
+                _SlipCell(entry.value.total, right: true),
+              ]),
+          ],
+        ),
+        const SizedBox(height: 18),
+        Align(
+          alignment: Alignment.centerRight,
+          child: SizedBox(
+            width: 220,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                _totalLine('Gross', row.gross),
+                _totalLine('Discount', row.discount),
+                const Divider(),
+                _totalLine('Net Bill', row.netBill, bold: true),
+                if (row.profit != null) _totalLine('Profit', row.profit!),
+              ],
+            ),
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
-          ),
+      ],
+    );
+  }
+
+  Widget _totalLine(String label, double value, {bool bold = false}) {
+    final style = TextStyle(
+        fontWeight: bold ? FontWeight.bold : FontWeight.normal);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: style),
+          Text(value.toStringAsFixed(2), style: style),
         ],
+      ),
+    );
+  }
+
+  Future<void> _printInvoice(_InvoiceRow row, Branch? branch) async {
+    Uint8List? logoBytes;
+    if (branch != null && branch.logoUrl.isNotEmpty) {
+      try {
+        final response = await http
+            .get(Uri.parse(branch.logoUrl))
+            .timeout(const Duration(seconds: 6));
+        if (response.statusCode == 200) logoBytes = response.bodyBytes;
+      } catch (_) {
+        // Printing without the logo is better than not printing at all.
+      }
+    }
+
+    final items = row.isSale
+        ? (row.sale?.items ?? []).map((i) => InvoiceLineItem(
+      description: i.productName,
+      qty: i.quantity.toStringAsFixed(2),
+      unitPrice: i.unitPrice.toStringAsFixed(2),
+      total: i.subtotal.toStringAsFixed(2),
+    ))
+        : (row.purchase?.items ?? []).map((i) => InvoiceLineItem(
+      description: i.itemName,
+      qty: i.quantity.toStringAsFixed(2),
+      unitPrice: i.unitCost.toStringAsFixed(2),
+      total: i.subtotal.toStringAsFixed(2),
+    ));
+
+    try {
+      await ReportExportService.printInvoiceSlip(InvoiceData(
+        branchName: branch?.name ?? row.branchName,
+        branchAddress: branch?.address ?? '',
+        branchContact: branch?.contact ?? '',
+        branchLogoBytes: logoBytes,
+        invoiceTypeLabel: row.isSale ? 'Sale Invoice' : 'Purchase Invoice',
+        invoiceNo: row.invoiceNo,
+        date: '${_formatDate(row.date)} ${_formatTime(row.date)}',
+        partyLabel: row.isSale ? 'Bill To' : 'Supplier',
+        partyName: row.partyName,
+        items: items.toList(),
+        gross: row.gross,
+        discount: row.discount,
+        netBill: row.netBill,
+        profit: row.profit,
+      ));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open print preview: $e')),
+      );
+    }
+  }
+}
+
+class _SlipCell extends StatelessWidget {
+  final String text;
+  final bool bold;
+  final Color? color;
+  final bool right;
+
+  const _SlipCell(this.text,
+      {this.bold = false, this.color, this.right = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: Text(
+        text,
+        textAlign: right ? TextAlign.right : TextAlign.left,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+          color: color,
+        ),
       ),
     );
   }

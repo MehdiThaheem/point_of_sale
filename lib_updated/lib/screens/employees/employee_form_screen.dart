@@ -14,6 +14,7 @@ import '../../services/customer_service.dart';
 import '../../services/employee_service.dart';
 import '../../services/supplier_service.dart';
 import '../../services/user_service.dart';
+import '../../utils/branch_filter.dart';
 
 // Handles adding a new Employee record. It also doubles as the single
 // place to create ANY portal account (Admin / Employee / Supplier /
@@ -94,7 +95,9 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
     _emailController = TextEditingController(text: e?.email ?? '');
     _hireDate = e?.hireDate?.toDate();
     _status = e?.status ?? 'active';
-    _selectedBranchId = e?.branchId.isNotEmpty == true ? e!.branchId : null;
+    _selectedBranchId = e?.branchId.isNotEmpty == true
+        ? e!.branchId
+        : selectedBranchId.value; // default: branch from the top bar
     // Preserve the original account type on edit — every type is stored
     // in the employees collection with "position" holding its label
     // (Manager/Admin/Delivery Boy/Counter Sale), so look up which key
@@ -423,7 +426,10 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
                                     .map((b) => DropdownMenuItem(
                                     value: b.id, child: Text(b.name)))
                                     .toList(),
-                                onChanged: (v) =>
+                                // Fixed for Managers (locked to their branch).
+                                onChanged: branchLocked.value
+                                    ? null
+                                    : (v) =>
                                     setState(() => _selectedBranchId = v),
                               );
                             },

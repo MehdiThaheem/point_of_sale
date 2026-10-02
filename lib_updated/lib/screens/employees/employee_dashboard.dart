@@ -1,16 +1,14 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../../models/employee.dart';
 import '../../services/auth_service.dart';
-import '../../services/customer_service.dart';
 import '../../services/employee_service.dart';
-import '../../services/product_service.dart';
-import '../../services/purchase_service.dart';
-import '../../services/sale_service.dart';
-import '../../services/supplier_service.dart';
 import '../../services/user_service.dart';
+import '../../utils/branch_filter.dart';
 import '../../widgets/profile_avatar.dart';
+import '../admin/dashboard_home.dart';
 import '../areas/areas_screen.dart';
 import '../parties/parties_screen.dart';
 import '../reports/invoices_report_screen.dart';
@@ -48,11 +46,13 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
   final AuthService _authService = AuthService();
   final UserService _userService = UserService();
   final EmployeeService _employeeService = EmployeeService();
-  final ProductService _productService = ProductService();
-  final SaleService _saleService = SaleService();
-  final PurchaseService _purchaseService = PurchaseService();
-  final CustomerService _customerService = CustomerService();
-  final SupplierService _supplierService = SupplierService();
+
+  // The Manager's own Employee record. Until it has loaded we show a
+  // spinner (so no "All Branches" data can flash on screen), then the whole
+  // app is locked to this Manager's branch.
+  Employee? _me;
+  bool _meLoaded = false;
+  StreamSubscription? _meSub;
 
   String selectedKey = 'dashboard';
   bool sidebarCollapsed = false;
@@ -103,11 +103,44 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
 
   String get _selectedTitle => _findEntry(selectedKey)?.title ?? '';
 
+  @override
+  void initState() {
+    super.initState();
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.isEmpty) {
+      _meLoaded = true;
+      return;
+    }
+    _meSub = _employeeService.streamEmployeeByUid(uid).listen((e) {
+      if (!mounted) return;
+      setState(() {
+        _me = e;
+        _meLoaded = true;
+      });
+      if (e != null && e.branchId.isNotEmpty) {
+        // Every screen filters by this, so the Manager only ever sees (and
+        // creates) data for their own branch.
+        lockToBranch(e.branchId, e.branchName);
+      } else {
+        unlockBranch();
+      }
+    }, onError: (_) {
+      if (mounted) setState(() => _meLoaded = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _meSub?.cancel();
+    super.dispose();
+  }
+
   void _select(String key) {
     setState(() => selectedKey = key);
   }
 
   Future<void> _logout() async {
+    unlockBranch(); // next login (e.g. an Admin) starts on "All Branches"
     await _authService.logout();
   }
 
@@ -496,6 +529,51 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
   // ================= BODY ROUTER =================
 
   Widget _buildBody() {
+    if (!_meLoaded) {
+      return const Padding(
+        padding: EdgeInsets.all(60),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    final me = _me;
+    if (me == null || me.branchId.isEmpty) return _noBranch();
+    return _buildBodyInner();
+  }
+
+  Widget _noBranch() {
+    return Center(
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 440),
+        margin: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(28),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: const [BoxShadow(color: Color(0x10000000), blurRadius: 10)],
+        ),
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.store_mall_directory_outlined,
+                size: 48, color: Color(0xFFE67E00)),
+            SizedBox(height: 14),
+            Text('No branch assigned',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            SizedBox(height: 8),
+            Text(
+              'Your account is not linked to a branch yet, so no data can be '
+                  'shown. Please ask the admin to set your branch on your '
+                  'Employee record.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBodyInner() {
     switch (selectedKey) {
       case 'dashboard':
         return _buildDashboard();
@@ -522,150 +600,9 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
 
   // ================= DASHBOARD =================
 
+  // Same dashboard as the Admin's (cards, sales chart, recent activity), but
+  // it only ever shows this Manager's branch because the app is locked to it.
   Widget _buildDashboard() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Welcome back 👋',
-          style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 6),
-        const Text(
-          'Here is your business overview.',
-          style: TextStyle(color: Colors.grey, fontSize: 14),
-        ),
-        const SizedBox(height: 25),
-        GridView(
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 230,
-            crossAxisSpacing: 18,
-            mainAxisSpacing: 18,
-            childAspectRatio: 1.7,
-          ),
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          children: [
-            _statCardStream(
-              title: 'Stock',
-              icon: Icons.inventory_2_outlined,
-              color: const Color(0xFF299FB0),
-              stream: _productService.streamProducts().map((list) =>
-                  list.fold<double>(0, (sum, p) => sum + p.currentStock)),
-            ),
-            _statCardStream(
-              title: 'Sales',
-              icon: Icons.point_of_sale_outlined,
-              color: const Color(0xFF3159C9),
-              stream: _saleService.streamSales().map((list) =>
-                  list.fold<double>(0, (sum, s) => sum + s.totalAmount)),
-            ),
-            _statCardStream(
-              title: 'Purchase',
-              icon: Icons.shopping_bag_outlined,
-              color: const Color(0xFF16A673),
-              stream: _purchaseService.streamPurchases().map((list) =>
-                  list.fold<double>(0, (sum, p) => sum + p.totalAmount)),
-            ),
-            _statCardStream(
-              title: 'Receivable',
-              icon: Icons.person_add_alt_1_outlined,
-              color: const Color(0xFFE8A900),
-              stream: _customerService.streamCustomers().map((list) =>
-                  list.fold<double>(0, (sum, c) => sum + c.totalReceivable)),
-            ),
-            _statCardStream(
-              title: 'Payable',
-              icon: Icons.person_remove_outlined,
-              color: const Color(0xFFD9362F),
-              stream: _supplierService.streamSuppliers().map((list) =>
-                  list.fold<double>(0, (sum, s) => sum + s.totalPayable)),
-            ),
-            _statCardStream(
-              title: 'Customers',
-              icon: Icons.people_outline,
-              color: const Color(0xFFE8A900),
-              stream: _customerService
-                  .streamCustomers()
-                  .map((list) => list.length.toDouble()),
-              isCount: true,
-            ),
-            _statCardStream(
-              title: 'Suppliers',
-              icon: Icons.local_shipping_outlined,
-              color: const Color(0xFF7B61C9),
-              stream: _supplierService
-                  .streamSuppliers()
-                  .map((list) => list.length.toDouble()),
-              isCount: true,
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _statCardStream({
-    required String title,
-    required IconData icon,
-    required Color color,
-    required Stream<double> stream,
-    bool isCount = false,
-  }) {
-    return StreamBuilder<double>(
-      stream: stream,
-      builder: (context, snapshot) {
-        final value = snapshot.data ?? 0;
-        final display =
-        isCount ? value.toInt().toString() : value.toStringAsFixed(0);
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.18),
-                  borderRadius: BorderRadius.circular(13),
-                ),
-                child: Icon(icon, color: Colors.white, size: 25),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style:
-                      const TextStyle(color: Colors.white, fontSize: 13),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      display,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 21,
-                          fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+    return const DashboardHome(roleLabel: 'Manager');
   }
 }

@@ -58,8 +58,9 @@ class _PartiesScreenState extends State<PartiesScreen>
     TextEditingController(text: customer?.address ?? '');
     String? selectedArea =
     customer?.area.isNotEmpty == true ? customer!.area : null;
-    String? selectedFormBranchId =
-    customer?.branchId.isNotEmpty == true ? customer!.branchId : null;
+    String? selectedFormBranchId = customer?.branchId.isNotEmpty == true
+        ? customer!.branchId
+        : selectedBranchId.value; // default: branch from the top bar
     String status = customer?.status ?? 'active';
     final formKey = GlobalKey<FormState>();
 
@@ -161,7 +162,10 @@ class _PartiesScreenState extends State<PartiesScreen>
                                   .map((b) => DropdownMenuItem(
                                   value: b.id, child: Text(b.name)))
                                   .toList(),
-                              onChanged: (v) => setDialogState(
+                              // Fixed for Managers (locked to their branch).
+                              onChanged: branchLocked.value
+                                  ? null
+                                  : (v) => setDialogState(
                                       () => selectedFormBranchId = v),
                             ),
                             const SizedBox(height: 12),
@@ -271,8 +275,9 @@ class _PartiesScreenState extends State<PartiesScreen>
     TextEditingController(text: supplier?.address ?? '');
     String? selectedArea =
     supplier?.area.isNotEmpty == true ? supplier!.area : null;
-    String? selectedFormBranchId =
-    supplier?.branchId.isNotEmpty == true ? supplier!.branchId : null;
+    String? selectedFormBranchId = supplier?.branchId.isNotEmpty == true
+        ? supplier!.branchId
+        : selectedBranchId.value; // default: branch from the top bar
     String status = supplier?.status ?? 'active';
     final formKey = GlobalKey<FormState>();
 
@@ -374,7 +379,10 @@ class _PartiesScreenState extends State<PartiesScreen>
                                   .map((b) => DropdownMenuItem(
                                   value: b.id, child: Text(b.name)))
                                   .toList(),
-                              onChanged: (v) => setDialogState(
+                              // Fixed for Managers (locked to their branch).
+                              onChanged: branchLocked.value
+                                  ? null
+                                  : (v) => setDialogState(
                                       () => selectedFormBranchId = v),
                             ),
                             const SizedBox(height: 12),

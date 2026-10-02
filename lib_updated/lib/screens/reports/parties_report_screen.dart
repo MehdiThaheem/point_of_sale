@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../models/branch.dart';
 import '../../models/customer.dart';
@@ -9,26 +8,25 @@ import '../../services/report_export_service.dart';
 import '../../services/supplier_service.dart';
 import '../../utils/branch_filter.dart';
 
-// Colours taken from the reference "Customer List" page.
-class _C {
-  static const blue = Color(0xFF0D6EFD);
-  static const line = Color(0xFFDEE2E6);
-  static const btnBg = Color(0xFFEFEFEF);
-  static const btnBorder = Color(0xFF767676);
-  static const green = Color(0xFF198754);
-}
+const _kBlue = Color(0xFF2F6FED);
 
-// One line of the report (either a customer or a supplier).
-class _Party {
+/// A customer or supplier, unified into one row shape for the table.
+class _PartyRow {
   final String name;
-  final String type; // 'Customer' / 'Supplier'
+  final String type; // 'Customer' or 'Supplier'
   final String contact;
   final String address;
   final String area;
   final double balance;
 
-  const _Party(this.name, this.type, this.contact, this.address, this.area,
-      this.balance);
+  const _PartyRow({
+    required this.name,
+    required this.type,
+    required this.contact,
+    required this.address,
+    required this.area,
+    required this.balance,
+  });
 }
 
 class PartiesReportScreen extends StatefulWidget {
@@ -39,482 +37,381 @@ class PartiesReportScreen extends StatefulWidget {
 }
 
 class _PartiesReportScreenState extends State<PartiesReportScreen> {
-  List<Customer> _customers = [];
-  List<Supplier> _suppliers = [];
-  List<Branch> _branches = [];
-  final List<StreamSubscription> _subs = [];
+  final CustomerService _customerService = CustomerService();
+  final SupplierService _supplierService = SupplierService();
+  final BranchService _branchService = BranchService();
 
-  final TextEditingController _search = TextEditingController();
-  String _type = 'Customer'; // Customer / Supplier / All
-
-  @override
-  void initState() {
-    super.initState();
-
-    void listen<T>(Stream<T> stream, void Function(T) assign) {
-      _subs.add(stream.listen((d) {
-        if (!mounted) return;
-        setState(() => assign(d));
-      }, onError: (_) {}));
-    }
-
-    listen(CustomerService().streamCustomers(), (d) => _customers = d);
-    listen(SupplierService().streamSuppliers(), (d) => _suppliers = d);
-    listen(BranchService().streamBranches(), (d) => _branches = d);
-  }
+  final _searchController = TextEditingController();
+  String _search = '';
+  String _type = 'Customer'; // 'Customer' or 'Supplier'
 
   @override
   void dispose() {
-    for (final s in _subs) {
-      s.cancel();
-    }
-    _search.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
-  // ================= DATA =================
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<String?>(
+      valueListenable: selectedBranchId,
+      builder: (context, branchId, _) {
+        return StreamBuilder<List<Branch>>(
+          stream: _branchService.streamBranches(),
+          builder: (context, branchSnapshot) {
+            final branches = branchSnapshot.data ?? [];
+            final matches = branches.where((b) => b.id == branchId);
+            final branch = matches.isNotEmpty ? matches.first : null;
 
-  String _money(double v) {
-    final neg = v < 0;
-    final parts = v.abs().toStringAsFixed(2).split('.');
-    final digits = parts[0];
-    final b = StringBuffer();
-    for (var i = 0; i < digits.length; i++) {
-      if (i > 0 && (digits.length - i) % 3 == 0) b.write(',');
-      b.write(digits[i]);
-    }
-    return '${neg ? '-' : ''}$b.${parts[1]}';
-  }
+            return StreamBuilder<List<Customer>>(
+              stream: _customerService.streamCustomers(),
+              builder: (context, customerSnapshot) {
+                final customers = customerSnapshot.data ?? [];
 
-  List<_Party> _parties(String? branchId) {
-    final q = _search.text.trim().toLowerCase();
-    final out = <_Party>[];
+                return StreamBuilder<List<Supplier>>(
+                  stream: _supplierService.streamSuppliers(),
+                  builder: (context, supplierSnapshot) {
+                    final suppliers = supplierSnapshot.data ?? [];
 
-    bool matches(String name, String phone, String address, String area) {
-      if (q.isEmpty) return true;
-      return name.toLowerCase().contains(q) ||
-          phone.toLowerCase().contains(q) ||
-          address.toLowerCase().contains(q) ||
-          area.toLowerCase().contains(q);
-    }
+                    var rows = _type == 'Customer'
+                        ? customers
+                        .where((c) =>
+                    branchId == null || c.branchId == branchId)
+                        .map((c) => _PartyRow(
+                      name: c.name,
+                      type: 'Customer',
+                      contact: c.phone,
+                      address: c.address,
+                      area: c.area,
+                      balance: c.totalReceivable,
+                    ))
+                        .toList()
+                        : suppliers
+                        .where((s) =>
+                    branchId == null || s.branchId == branchId)
+                        .map((s) => _PartyRow(
+                      name: s.name,
+                      type: 'Supplier',
+                      contact: s.phone,
+                      address: s.address,
+                      area: s.area,
+                      balance: s.totalPayable,
+                    ))
+                        .toList();
 
-    if (_type == 'Customer' || _type == 'All') {
-      final list = _customers
-          .where((c) => branchId == null || c.branchId == branchId)
-          .where((c) => matches(c.name, c.phone, c.address, c.area))
-          .toList()
-        ..sort((a, b) => a.name.compareTo(b.name));
-      for (final c in list) {
-        out.add(_Party(
-            c.name, 'Customer', c.phone, c.address, c.area, c.totalReceivable));
-      }
-    }
+                    if (_search.isNotEmpty) {
+                      rows = rows
+                          .where((r) =>
+                          r.name.toLowerCase().contains(_search))
+                          .toList();
+                    }
+                    rows.sort((a, b) => a.name.compareTo(b.name));
 
-    if (_type == 'Supplier' || _type == 'All') {
-      final list = _suppliers
-          .where((s) => branchId == null || s.branchId == branchId)
-          .where((s) => matches(s.name, s.phone, s.address, s.area))
-          .toList()
-        ..sort((a, b) => a.name.compareTo(b.name));
-      for (final s in list) {
-        out.add(_Party(
-            s.name, 'Supplier', s.phone, s.address, s.area, s.totalPayable));
-      }
-    }
-
-    return out;
-  }
-
-  Branch? _branchById(String? id) {
-    if (id == null) return null;
-    for (final b in _branches) {
-      if (b.id == id) return b;
-    }
-    return null;
-  }
-
-  String get _title {
-    switch (_type) {
-      case 'Supplier':
-        return 'Supplier List';
-      case 'All':
-        return 'Parties List';
-      default:
-        return 'Customer List';
-    }
-  }
-
-  // ================= EXPORT =================
-
-  void _snack(String msg, {Color? color}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(backgroundColor: color, content: Text(msg)),
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildBranchHeader(branch),
+                        const SizedBox(height: 20),
+                        Center(
+                          child: Text(
+                            _type == 'Customer'
+                                ? 'Customer List'
+                                : 'Supplier List',
+                            style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: _kBlue),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _buildFilters(rows),
+                        const SizedBox(height: 16),
+                        if (rows.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.all(40),
+                            child: Center(
+                              child: Text(
+                                'No parties match these filters.',
+                                style: TextStyle(color: Colors.grey),
+                              ),
+                            ),
+                          )
+                        else
+                          _buildTable(rows),
+                      ],
+                    );
+                  },
+                );
+              },
+            );
+          },
+        );
+      },
     );
   }
 
-  ReportData _reportData(List<_Party> rows, String branchLabel) {
-    List<String> line(int i, _Party p) => [
-      '${i + 1}',
-      p.name,
-      p.type,
-      p.contact.isEmpty ? '-' : p.contact,
-      p.address.isEmpty ? '-' : p.address,
-      p.area.isEmpty ? '-' : p.area,
-      p.balance.toStringAsFixed(2),
-    ];
-
-    final types = <String>[];
-    for (final r in rows) {
-      if (!types.contains(r.type)) types.add(r.type);
-    }
-
-    final sections = <ReportSection>[];
-    for (final t in types) {
-      final list = rows.where((r) => r.type == t).toList();
-      sections.add(ReportSection(
-        title: t == 'Customer' ? 'Customers (Receivable)' : 'Suppliers (Payable)',
-        rows: [for (var i = 0; i < list.length; i++) line(i, list[i])],
-        totalRow: [
-          '',
-          'Total',
-          '',
-          '',
-          '',
-          '',
-          list.fold(0.0, (s, p) => s + p.balance).toStringAsFixed(2),
+  Widget _buildBranchHeader(Branch? branch) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 28,
+            backgroundColor: const Color(0xFFEDF1FB),
+            backgroundImage: (branch?.logoUrl.isNotEmpty ?? false)
+                ? NetworkImage(branch!.logoUrl)
+                : null,
+            child: (branch?.logoUrl.isEmpty ?? true)
+                ? const Icon(Icons.apartment, color: _kBlue)
+                : null,
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  branch?.name ?? 'All Branches',
+                  style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: _kBlue),
+                ),
+                if ((branch?.address ?? '').isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      [
+                        branch!.address,
+                        if (branch.contact.isNotEmpty) branch.contact,
+                      ].join(', '),
+                      style: const TextStyle(color: Colors.grey),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ],
-      ));
-    }
+      ),
+    );
+  }
 
+  Widget _buildFilters(List<_PartyRow> rows) {
+    final typeDropdown = SizedBox(
+      width: 160,
+      child: DropdownButtonFormField<String>(
+        value: _type,
+        decoration: InputDecoration(
+          filled: true,
+          fillColor: Colors.white,
+          isDense: true,
+          contentPadding:
+          const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide(color: Colors.grey.shade300),
+          ),
+        ),
+        items: const [
+          DropdownMenuItem(value: 'Customer', child: Text('Customer')),
+          DropdownMenuItem(value: 'Supplier', child: Text('Supplier')),
+        ],
+        onChanged: (v) => setState(() => _type = v ?? 'Customer'),
+      ),
+    );
+
+    final search = TextField(
+      controller: _searchController,
+      onChanged: (v) => setState(() => _search = v.trim().toLowerCase()),
+      decoration: InputDecoration(
+        hintText: 'Search...',
+        filled: true,
+        fillColor: Colors.white,
+        isDense: true,
+        contentPadding:
+        const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: Colors.grey.shade300),
+        ),
+      ),
+    );
+
+    final printButton = OutlinedButton.icon(
+      onPressed: () => _handlePrint(rows),
+      icon: const Icon(Icons.print_outlined, size: 16),
+      label: const Text('Print'),
+    );
+
+    final excelButton = ElevatedButton.icon(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF1E8E4F),
+        foregroundColor: Colors.white,
+      ),
+      onPressed: () => _handleExcelExport(rows),
+      icon: const Icon(Icons.grid_on, size: 16),
+      label: const Text('Excel'),
+    );
+
+    return LayoutBuilder(builder: (context, constraints) {
+      final narrow = constraints.maxWidth < 700;
+      if (narrow) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            typeDropdown,
+            const SizedBox(height: 10),
+            search,
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                printButton,
+                const SizedBox(width: 10),
+                excelButton,
+              ],
+            ),
+          ],
+        );
+      }
+      return Row(
+        children: [
+          typeDropdown,
+          const SizedBox(width: 12),
+          Expanded(child: search),
+          const SizedBox(width: 12),
+          printButton,
+          const SizedBox(width: 10),
+          excelButton,
+        ],
+      );
+    });
+  }
+
+  Widget _buildTable(List<_PartyRow> rows) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: DataTable(
+          dataRowMinHeight: 52,
+          dataRowMaxHeight: 60,
+          headingRowColor: MaterialStateProperty.all(_kBlue),
+          columns: const [
+            DataColumn(label: Text('Sr', style: TextStyle(color: Colors.white))),
+            DataColumn(label: Text('Name', style: TextStyle(color: Colors.white))),
+            DataColumn(label: Text('Type', style: TextStyle(color: Colors.white))),
+            DataColumn(label: Text('Contact', style: TextStyle(color: Colors.white))),
+            DataColumn(label: Text('Address', style: TextStyle(color: Colors.white))),
+            DataColumn(label: Text('Area', style: TextStyle(color: Colors.white))),
+            DataColumn(
+                label: Text('Balance', style: TextStyle(color: Colors.white)),
+                numeric: true),
+          ],
+          rows: List.generate(rows.length, (i) {
+            final row = rows[i];
+            return DataRow(cells: [
+              DataCell(Text('${i + 1}')),
+              DataCell(Text(row.name,
+                  style: const TextStyle(fontWeight: FontWeight.w600))),
+              DataCell(Text(row.type)),
+              DataCell(Text(row.contact.isEmpty ? '-' : row.contact)),
+              DataCell(Text(row.address.isEmpty ? '-' : row.address)),
+              DataCell(Text(row.area.isEmpty ? '-' : row.area)),
+              DataCell(Text(
+                row.balance.toStringAsFixed(2),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: row.balance > 0 ? Colors.red : Colors.grey,
+                ),
+              )),
+            ]);
+          }),
+        ),
+      ),
+    );
+  }
+
+  ReportData _buildReportData(List<_PartyRow> rows) {
+    final total = rows.fold<double>(0, (s, r) => s + r.balance);
     return ReportData(
-      title: _title,
-      subtitle: 'Branch: $branchLabel',
-      columns: const [
-        'Sr',
-        'Name',
-        'Type',
-        'Contact',
-        'Address',
-        'Area',
-        'Balance',
-      ],
-      columnFlex: const [0.6, 2.2, 1.3, 1.8, 2.6, 1.4, 1.5],
+      title: '$_type List',
+      subtitle: 'Branch: ${selectedBranchName.value ?? 'All Branches'} - '
+          '${rows.length} ${_type.toLowerCase()}s',
+      columns: const ['Sr', 'Name', 'Type', 'Contact', 'Address', 'Area', 'Balance'],
+      columnFlex: const [0.6, 2, 1.2, 1.6, 2.2, 1.4, 1.4],
       numericColumns: const {6},
-      sections: sections,
+      sections: [
+        ReportSection(
+          title: '$_type List',
+          rows: [
+            for (var i = 0; i < rows.length; i++)
+              [
+                '${i + 1}',
+                rows[i].name,
+                rows[i].type,
+                rows[i].contact.isEmpty ? '-' : rows[i].contact,
+                rows[i].address.isEmpty ? '-' : rows[i].address,
+                rows[i].area.isEmpty ? '-' : rows[i].area,
+                rows[i].balance.toStringAsFixed(2),
+              ],
+          ],
+          totalRow: ['', '', '', '', '', 'Total', total.toStringAsFixed(2)],
+        ),
+      ],
       overallRow: [
-        'Total Parties: ${rows.length}',
-        'Total Balance: ${rows.fold(0.0, (s, p) => s + p.balance).toStringAsFixed(2)}',
+        'Total ${_type}s: ${rows.length}',
+        'Total Balance: ${total.toStringAsFixed(2)}',
       ],
     );
   }
 
-  Future<void> _print(List<_Party> rows, String branchLabel) async {
+  Future<void> _handlePrint(List<_PartyRow> rows) async {
     if (rows.isEmpty) {
-      _snack('No records to print.');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No parties to print.')),
+      );
       return;
     }
     try {
-      await ReportExportService.printReport(
-        _reportData(rows, branchLabel),
-        fileName: 'parties_report',
-      );
+      await ReportExportService.printReport(_buildReportData(rows),
+          fileName: 'parties_report');
     } catch (e) {
-      if (mounted) _snack('Could not open print preview: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open print preview: $e')),
+      );
     }
   }
 
-  Future<void> _excel(List<_Party> rows, String branchLabel) async {
+  Future<void> _handleExcelExport(List<_PartyRow> rows) async {
     if (rows.isEmpty) {
-      _snack('No records to export.');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No parties to export.')),
+      );
       return;
     }
     try {
       await ReportExportService.exportExcel(
-          _reportData(rows, branchLabel), 'parties_report');
-      if (mounted) _snack('Excel file saved.', color: _C.green);
+          _buildReportData(rows), 'parties_report');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Excel file saved: parties_report.xlsx')),
+      );
     } catch (e) {
-      if (mounted) _snack('Could not export Excel: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not export Excel: $e')),
+      );
     }
-  }
-
-  // ================= BUILD =================
-
-  @override
-  Widget build(BuildContext context) {
-    // Rebuilds whenever the branch picked in the top bar changes.
-    return ValueListenableBuilder<String?>(
-      valueListenable: selectedBranchId,
-      builder: (context, branchId, _) {
-        final rows = _parties(branchId);
-        final branch = _branchById(branchId);
-        final branchLabel = selectedBranchName.value ?? 'All Branches';
-
-        return Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(8),
-            boxShadow: const [
-              BoxShadow(color: Color(0x0F000000), blurRadius: 8)
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _header(branch, branchLabel),
-              const SizedBox(height: 10),
-              Container(height: 3, color: _C.blue),
-              const SizedBox(height: 16),
-              Center(
-                child: Text(
-                  _title,
-                  style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                      color: _C.blue),
-                ),
-              ),
-              const SizedBox(height: 14),
-              _toolbar(rows, branchLabel),
-              const SizedBox(height: 14),
-              _table(rows),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  // ---------- branch letterhead ----------
-
-  Widget _header(Branch? branch, String branchLabel) {
-    final address = branch == null
-        ? ''
-        : (branch.address.isNotEmpty
-        ? branch.address
-        : [branch.area, branch.city].where((s) => s.isNotEmpty).join(', '));
-    final contact = branch?.contact ?? '';
-    final logo = branch?.logoUrl ?? '';
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        SizedBox(
-          width: 76,
-          height: 76,
-          child: logo.isEmpty
-              ? const Icon(Icons.apartment_rounded, size: 56, color: _C.blue)
-              : Image.network(
-            logo,
-            fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) => const Icon(
-                Icons.apartment_rounded,
-                size: 56,
-                color: _C.blue),
-          ),
-        ),
-        const SizedBox(width: 20),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(branchLabel,
-                  style: const TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.w500,
-                      color: _C.blue)),
-              if (address.isNotEmpty)
-                Text(address,
-                    style: const TextStyle(fontSize: 16, color: Colors.black87)),
-              if (contact.isNotEmpty)
-                Text(contact,
-                    style: const TextStyle(fontSize: 16, color: Colors.black87)),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ---------- dropdown + search + Print + Excel ----------
-
-  Widget _btn(IconData icon, Color iconColor, String label, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(3),
-      child: Container(
-        height: 38,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          color: _C.btnBg,
-          border: Border.all(color: _C.btnBorder),
-          borderRadius: BorderRadius.circular(3),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 18, color: iconColor),
-            const SizedBox(width: 6),
-            Text(label,
-                style: const TextStyle(fontSize: 15, color: Colors.black)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _toolbar(List<_Party> rows, String branchLabel) {
-    return Wrap(
-      spacing: 12,
-      runSpacing: 10,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        Container(
-          height: 38,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.black87),
-            borderRadius: BorderRadius.circular(3),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: _type,
-              isDense: true,
-              items: const [
-                DropdownMenuItem(value: 'Customer', child: Text('Customer')),
-                DropdownMenuItem(value: 'Supplier', child: Text('Supplier')),
-                DropdownMenuItem(value: 'All', child: Text('All')),
-              ],
-              onChanged: (v) => setState(() => _type = v ?? _type),
-            ),
-          ),
-        ),
-        SizedBox(
-          width: 250,
-          height: 38,
-          child: TextField(
-            controller: _search,
-            onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(
-              hintText: 'Search...',
-              isDense: true,
-              contentPadding:
-              EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.all(Radius.circular(3)),
-                borderSide: BorderSide(color: Colors.black87),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.all(Radius.circular(3)),
-                borderSide: BorderSide(color: Colors.black87),
-              ),
-            ),
-          ),
-        ),
-        _btn(Icons.print_outlined, Colors.black87, 'Print',
-                () => _print(rows, branchLabel)),
-        _btn(Icons.table_view, _C.green, 'Excel',
-                () => _excel(rows, branchLabel)),
-      ],
-    );
-  }
-
-  // ---------- table ----------
-
-  Widget _cell(String text,
-      {required int flex, bool header = false, bool bold = false}) {
-    return Expanded(
-      flex: flex,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-        alignment: Alignment.centerLeft,
-        decoration: BoxDecoration(
-          border: Border(
-            right: BorderSide(
-                color: header ? Colors.transparent : _C.line, width: 1),
-            bottom: const BorderSide(color: _C.line),
-          ),
-        ),
-        child: Text(
-          text,
-          style: TextStyle(
-            fontSize: header ? 17 : 15,
-            fontWeight: (header || bold) ? FontWeight.w700 : FontWeight.w400,
-            color: header ? Colors.white : Colors.black87,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _table(List<_Party> rows) {
-    final total = rows.fold<double>(0, (s, p) => s + p.balance);
-
-    return LayoutBuilder(
-      builder: (context, c) {
-        final w = c.maxWidth < 860 ? 860.0 : c.maxWidth;
-        return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: SizedBox(
-            width: w,
-            child: Container(
-              decoration: BoxDecoration(border: Border.all(color: _C.line)),
-              child: Column(
-                children: [
-                  Container(
-                    color: _C.blue,
-                    child: Row(
-                      children: [
-                        _cell('Sr', flex: 6, header: true),
-                        _cell('Name', flex: 20, header: true),
-                        _cell('Type', flex: 14, header: true),
-                        _cell('Contact', flex: 18, header: true),
-                        _cell('Address', flex: 24, header: true),
-                        _cell('Area', flex: 14, header: true),
-                        _cell('Balance', flex: 14, header: true),
-                      ],
-                    ),
-                  ),
-                  if (rows.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 26),
-                      child: Text('No records found.',
-                          style: TextStyle(fontSize: 16)),
-                    ),
-                  for (var i = 0; i < rows.length; i++)
-                    Row(
-                      children: [
-                        _cell('${i + 1}', flex: 6),
-                        _cell(rows[i].name, flex: 20),
-                        _cell(rows[i].type, flex: 14),
-                        _cell(rows[i].contact, flex: 18),
-                        _cell(rows[i].address, flex: 24),
-                        _cell(rows[i].area, flex: 14),
-                        _cell(_money(rows[i].balance), flex: 14),
-                      ],
-                    ),
-                  if (rows.isNotEmpty)
-                    Container(
-                      color: const Color(0xFFF8F9FA),
-                      child: Row(
-                        children: [
-                          _cell('', flex: 6),
-                          _cell('Total', flex: 20, bold: true),
-                          _cell('', flex: 14),
-                          _cell('', flex: 18),
-                          _cell('', flex: 24),
-                          _cell('', flex: 14),
-                          _cell(_money(total), flex: 14, bold: true),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
   }
 }

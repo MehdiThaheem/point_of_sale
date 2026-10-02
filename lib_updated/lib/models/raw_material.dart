@@ -7,6 +7,12 @@ class RawMaterial {
   final double currentStock;
   final double minStock;
   final double costPerUnit;
+
+  // Branch this material belongs to. Old records don't have one, so they
+  // default to '' and only show under "All Branches" until edited.
+  final String branchId;
+  final String branchName;
+
   final Timestamp? createdAt;
 
   RawMaterial({
@@ -16,6 +22,8 @@ class RawMaterial {
     this.currentStock = 0,
     this.minStock = 0,
     this.costPerUnit = 0,
+    this.branchId = '',
+    this.branchName = '',
     this.createdAt,
   });
 
@@ -29,6 +37,8 @@ class RawMaterial {
       currentStock: (map['currentStock'] ?? 0).toDouble(),
       minStock: (map['minStock'] ?? 0).toDouble(),
       costPerUnit: (map['costPerUnit'] ?? 0).toDouble(),
+      branchId: map['branchId'] ?? '',
+      branchName: map['branchName'] ?? '',
       createdAt: map['createdAt'],
     );
   }
@@ -40,6 +50,8 @@ class RawMaterial {
       'currentStock': currentStock,
       'minStock': minStock,
       'costPerUnit': costPerUnit,
+      'branchId': branchId,
+      'branchName': branchName,
       'createdAt': createdAt ?? FieldValue.serverTimestamp(),
     };
   }

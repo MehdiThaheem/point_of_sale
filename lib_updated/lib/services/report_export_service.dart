@@ -48,6 +48,63 @@ class ReportData {
   });
 }
 
+/// One line on a printed invoice.
+class InvoiceLineItem {
+  final String description;
+  final String qty;
+  final String unitPrice;
+  final String total;
+
+  const InvoiceLineItem({
+    required this.description,
+    required this.qty,
+    required this.unitPrice,
+    required this.total,
+  });
+}
+
+/// Everything needed to print a single sale/purchase invoice slip —
+/// separate from [ReportData] because an invoice is one branded
+/// document, not a grouped table.
+class InvoiceData {
+  final String branchName;
+  final String branchAddress;
+  final String branchContact;
+
+  /// Raw image bytes for the branch logo, already downloaded — kept as
+  /// bytes rather than a URL because the PDF renderer can't fetch a
+  /// network image itself.
+  final Uint8List? branchLogoBytes;
+
+  final String invoiceTypeLabel; // "Sale Invoice" or "Purchase Invoice"
+  final String invoiceNo;
+  final String date;
+  final String partyLabel; // "Bill To" or "Supplier"
+  final String partyName;
+  final List<InvoiceLineItem> items;
+  final double gross;
+  final double discount;
+  final double netBill;
+  final double? profit;
+
+  const InvoiceData({
+    required this.branchName,
+    required this.branchAddress,
+    required this.branchContact,
+    this.branchLogoBytes,
+    required this.invoiceTypeLabel,
+    required this.invoiceNo,
+    required this.date,
+    required this.partyLabel,
+    required this.partyName,
+    required this.items,
+    required this.gross,
+    required this.discount,
+    required this.netBill,
+    this.profit,
+  });
+}
+
 /// Print / export helpers built on the `pdf`, `printing`, `excel` and
 /// `file_saver` packages. Unlike the earlier dart:html version these work
 /// on web, Android, iOS and desktop alike.
@@ -65,6 +122,170 @@ class ReportExportService {
     await Printing.layoutPdf(
       name: fileName ?? 'report',
       onLayout: (_) async => bytes,
+    );
+  }
+
+  /// Opens the system print / PDF-preview dialog for a single invoice
+  /// slip — the branch header, bill-to, line items and totals, laid out
+  /// like a real printable invoice rather than a grouped report table.
+  static Future<void> printInvoiceSlip(InvoiceData data) async {
+    final doc = pw.Document();
+    final logo = data.branchLogoBytes != null
+        ? pw.MemoryImage(data.branchLogoBytes!)
+        : null;
+
+    doc.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        build: (context) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                if (logo != null) ...[
+                  pw.Container(
+                    width: 48,
+                    height: 48,
+                    decoration: pw.BoxDecoration(
+                      shape: pw.BoxShape.circle,
+                      image: pw.DecorationImage(image: logo),
+                    ),
+                  ),
+                  pw.SizedBox(width: 12),
+                ],
+                pw.Expanded(
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        data.branchName.toUpperCase(),
+                        style: pw.TextStyle(
+                          fontSize: 20,
+                          fontWeight: pw.FontWeight.bold,
+                          color: _navy,
+                        ),
+                      ),
+                      if (data.branchAddress.isNotEmpty)
+                        pw.Text(data.branchAddress,
+                            style: const pw.TextStyle(fontSize: 10)),
+                      if (data.branchContact.isNotEmpty)
+                        pw.Text('Contact: ${data.branchContact}',
+                            style: pw.TextStyle(
+                                fontSize: 10,
+                                fontWeight: pw.FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 10),
+            pw.Container(height: 2, color: _navy),
+            pw.SizedBox(height: 16),
+            pw.Text('${data.partyLabel.toUpperCase()}:',
+                style: const pw.TextStyle(
+                    fontSize: 10, color: PdfColors.grey700)),
+            pw.Text(data.partyName,
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 10),
+            pw.Text('${data.invoiceTypeLabel} #: ${data.invoiceNo}',
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+            pw.Text('Date: ${data.date}'),
+            pw.SizedBox(height: 16),
+            pw.Table(
+              border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
+              columnWidths: const {
+                0: pw.FlexColumnWidth(0.6),
+                1: pw.FlexColumnWidth(3),
+                2: pw.FlexColumnWidth(1),
+                3: pw.FlexColumnWidth(1.4),
+                4: pw.FlexColumnWidth(1.4),
+              },
+              children: [
+                pw.TableRow(
+                  decoration: const pw.BoxDecoration(color: _navy),
+                  children: [
+                    _invoiceCell('SR#', bold: true, color: PdfColors.white),
+                    _invoiceCell('PRODUCT DESCRIPTION',
+                        bold: true, color: PdfColors.white),
+                    _invoiceCell('QTY',
+                        bold: true, color: PdfColors.white, right: true),
+                    _invoiceCell('UNIT PRICE',
+                        bold: true, color: PdfColors.white, right: true),
+                    _invoiceCell('TOTAL',
+                        bold: true, color: PdfColors.white, right: true),
+                  ],
+                ),
+                for (var i = 0; i < data.items.length; i++)
+                  pw.TableRow(children: [
+                    _invoiceCell('${i + 1}'),
+                    _invoiceCell(data.items[i].description),
+                    _invoiceCell(data.items[i].qty, right: true),
+                    _invoiceCell(data.items[i].unitPrice, right: true),
+                    _invoiceCell(data.items[i].total, right: true),
+                  ]),
+              ],
+            ),
+            pw.SizedBox(height: 16),
+            pw.Align(
+              alignment: pw.Alignment.centerRight,
+              child: pw.SizedBox(
+                width: 220,
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.end,
+                  children: [
+                    _totalLine('Gross', data.gross),
+                    _totalLine('Discount', data.discount),
+                    pw.Divider(),
+                    _totalLine('Net Bill', data.netBill, bold: true),
+                    if (data.profit != null)
+                      _totalLine('Profit', data.profit!),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    await Printing.layoutPdf(
+      name: 'invoice_${data.invoiceNo}',
+      onLayout: (_) async => doc.save(),
+    );
+  }
+
+  static pw.Widget _invoiceCell(String text,
+      {bool bold = false, PdfColor? color, bool right = false}) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+      child: pw.Text(
+        text,
+        textAlign: right ? pw.TextAlign.right : pw.TextAlign.left,
+        style: pw.TextStyle(
+          fontSize: 9,
+          fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  static pw.Widget _totalLine(String label, double value, {bool bold = false}) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 2),
+      child: pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Text(label,
+              style: pw.TextStyle(
+                  fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
+          pw.Text(value.toStringAsFixed(2),
+              style: pw.TextStyle(
+                  fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
+        ],
+      ),
     );
   }
 

@@ -46,15 +46,21 @@ class _Activity {
 /// Everything on the Dashboard page. All numbers, the chart and the recent
 /// activity list follow the branch chosen in the top bar.
 class DashboardHome extends StatefulWidget {
-  final VoidCallback onAddProduct;
-  final VoidCallback onNewPurchase;
-  final VoidCallback onAddCustomer;
+  // Quick Action buttons; any that is null is not shown, and when all are
+  // null the whole Quick Actions card is hidden (e.g. for Managers).
+  final VoidCallback? onAddProduct;
+  final VoidCallback? onNewPurchase;
+  final VoidCallback? onAddCustomer;
+
+  /// Shown in the welcome line ("Admin" / "Manager").
+  final String roleLabel;
 
   const DashboardHome({
     super.key,
-    required this.onAddProduct,
-    required this.onNewPurchase,
-    required this.onAddCustomer,
+    this.onAddProduct,
+    this.onNewPurchase,
+    this.onAddCustomer,
+    this.roleLabel = 'Admin',
   });
 
   @override
@@ -238,8 +244,8 @@ class _DashboardHomeState extends State<DashboardHome> {
               builder: (context, branchName, _) {
                 return Text(
                   branchName == null
-                      ? 'Welcome back, Admin 👋'
-                      : 'Welcome back, Admin — $branchName 👋',
+                      ? 'Welcome back, ${widget.roleLabel} 👋'
+                      : 'Welcome back, ${widget.roleLabel} — $branchName 👋',
                   style: const TextStyle(
                       fontSize: 26, fontWeight: FontWeight.bold),
                 );
@@ -283,6 +289,10 @@ class _DashboardHomeState extends State<DashboardHome> {
             const SizedBox(height: 25),
             LayoutBuilder(
               builder: (context, constraints) {
+                final hasActions = widget.onAddProduct != null ||
+                    widget.onNewPurchase != null ||
+                    widget.onAddCustomer != null;
+                if (!hasActions) return _salesOverview(sales);
                 if (constraints.maxWidth < 700) {
                   return Column(
                     children: [
@@ -498,11 +508,15 @@ class _DashboardHomeState extends State<DashboardHome> {
           const Text('Quick Actions',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 18),
-          action('Add Product', Icons.add_box_outlined, widget.onAddProduct),
-          action('New Purchase', Icons.shopping_cart_outlined,
-              widget.onNewPurchase),
-          action('Add Customer', Icons.person_add_outlined,
-              widget.onAddCustomer),
+          if (widget.onAddProduct != null)
+            action('Add Product', Icons.add_box_outlined,
+                widget.onAddProduct!),
+          if (widget.onNewPurchase != null)
+            action('New Purchase', Icons.shopping_cart_outlined,
+                widget.onNewPurchase!),
+          if (widget.onAddCustomer != null)
+            action('Add Customer', Icons.person_add_outlined,
+                widget.onAddCustomer!),
         ],
       ),
     );
