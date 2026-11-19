@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/branch_filter.dart';
 import '../models/product.dart';
 
 class ProductService {
@@ -6,9 +7,20 @@ class ProductService {
   FirebaseFirestore.instance.collection('products');
 
   Stream<List<Product>> streamProducts() {
-    return _col.orderBy('name').snapshots().map((snap) => snap.docs
-        .map((d) => Product.fromMap(d.id, d.data() as Map<String, dynamic>))
-        .toList());
+    // A Manager's login is fixed to one branch: ask Firestore for only that
+    // branch's documents (the security rules require it). Admin, Counter
+    // Sale etc. get everything, sorted by name as before.
+    final b = lockedBranchId;
+    final Query q = b == null
+        ? _col.orderBy('name')
+        : _col.where('branchId', isEqualTo: b);
+    return q.snapshots().map((snap) {
+      final list = snap.docs
+          .map((d) => Product.fromMap(d.id, d.data() as Map<String, dynamic>))
+          .toList();
+      if (b != null) list.sort((x, y) => x.name.compareTo(y.name));
+      return list;
+    });
   }
 
   Future<void> addProduct(Product product) async {

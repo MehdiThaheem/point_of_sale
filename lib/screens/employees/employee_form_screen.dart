@@ -11,10 +11,10 @@ import '../../services/auth_service.dart';
 import '../../services/branch_service.dart';
 import '../../services/cloudinary_service.dart';
 import '../../services/customer_service.dart';
+import '../../services/email_service.dart';
 import '../../services/employee_service.dart';
 import '../../services/supplier_service.dart';
 import '../../services/user_service.dart';
-import '../../utils/branch_filter.dart';
 
 // Handles adding a new Employee record. It also doubles as the single
 // place to create ANY portal account (Admin / Employee / Supplier /
@@ -36,6 +36,8 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
   final CloudinaryService _cloudinaryService = CloudinaryService();
   final AuthService _authService = AuthService();
   final UserService _userService = UserService();
+  final EmailService _emailService = EmailService();
+  bool _credentialsEmailSent = true;
   final CustomerService _customerService = CustomerService();
   final SupplierService _supplierService = SupplierService();
   final _formKey = GlobalKey<FormState>();
@@ -95,9 +97,7 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
     _emailController = TextEditingController(text: e?.email ?? '');
     _hireDate = e?.hireDate?.toDate();
     _status = e?.status ?? 'active';
-    _selectedBranchId = e?.branchId.isNotEmpty == true
-        ? e!.branchId
-        : selectedBranchId.value; // default: branch from the top bar
+    _selectedBranchId = e?.branchId.isNotEmpty == true ? e!.branchId : null;
     // Preserve the original account type on edit — every type is stored
     // in the employees collection with "position" holding its label
     // (Manager/Admin/Delivery Boy/Counter Sale), so look up which key
@@ -187,6 +187,18 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
           email: _emailController.text.trim(),
           phone: _contactController.text.trim(),
           role: _accountType,
+        );
+
+        // Let the employee know their own login details straight away,
+        // instead of the admin having to relay the username/password
+        // manually. A failed email here doesn't stop account creation
+        // — it's just noted in the snackbar after saving below.
+        _credentialsEmailSent = await _emailService.sendLoginCredentials(
+          toEmail: _emailController.text.trim(),
+          employeeName: _nameController.text.trim(),
+          username: _usernameController.text.trim(),
+          password: _passwordController.text.trim(),
+          roleLabel: accountTypeLabels[_accountType] ?? _accountType,
         );
       }
 
@@ -303,7 +315,22 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
         }
       }
 
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        final messenger = ScaffoldMessenger.of(context);
+        Navigator.pop(context);
+        if (!_credentialsEmailSent) {
+          messenger.showSnackBar(
+            const SnackBar(
+              content: Text(
+                  'Account created, but the login-details email could not '
+                      'be sent. Please share the username/password with the '
+                      'employee directly, or check the EmailJS setup in '
+                      'email_service.dart.'),
+              duration: Duration(seconds: 6),
+            ),
+          );
+        }
+      }
     } on FirebaseAuthException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -426,10 +453,7 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
                                     .map((b) => DropdownMenuItem(
                                     value: b.id, child: Text(b.name)))
                                     .toList(),
-                                // Fixed for Managers (locked to their branch).
-                                onChanged: branchLocked.value
-                                    ? null
-                                    : (v) =>
+                                onChanged: (v) =>
                                     setState(() => _selectedBranchId = v),
                               );
                             },
@@ -457,7 +481,7 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
                         const SizedBox(height: 16),
                         _twoCol(
                           _labeledField(
-                            'Email (for portal login, Must)',
+                            'Email (for portal login, optional)',
                             TextFormField(
                               controller: _emailController,
                               keyboardType: TextInputType.emailAddress,
@@ -486,7 +510,7 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
                                 Text(
                                   _loginIsRequired
                                       ? 'Portal Login'
-                                      : 'Portal Login ',
+                                      : 'Portal Login (optional)',
                                   style: const TextStyle(
                                       fontWeight: FontWeight.w700),
                                 ),
@@ -506,14 +530,14 @@ class _EmployeeFormScreenState extends State<EmployeeFormScreen> {
                                 const SizedBox(height: 14),
                                 _twoCol(
                                   _labeledField(
-                                    'Username/E_mail',
+                                    'Username',
                                     TextFormField(
                                       controller: _usernameController,
                                       decoration: _fieldDecoration(),
                                     ),
                                   ),
                                   _labeledField(
-                                    ' Password For Login',
+                                    'Temporary Password',
                                     TextFormField(
                                       controller: _passwordController,
                                       obscureText: true,

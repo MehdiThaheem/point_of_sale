@@ -8,6 +8,7 @@ import '../../services/product_service.dart';
 import '../../services/quotation_service.dart';
 import '../../services/sale_service.dart';
 import '../../utils/branch_context.dart';
+import '../../widgets/product_card.dart';
 
 // Shared palette so this screen and QuickSaleScreen look like one
 // consistent product, not two different mockups stitched together.
@@ -608,61 +609,26 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                         style: TextStyle(color: Colors.grey)),
                   );
                 }
+                // Professional product cards (shared with the Sale screen):
+                // name, price and a coloured stock status.
                 return GridView.builder(
-                  gridDelegate:
-                  const SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 170,
-                    childAspectRatio: 1.25,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
+                  gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 190,
+                    mainAxisExtent: ProductCard.heightFor(
+                        showPrice: true, showStock: true),
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
                   ),
+                  padding: const EdgeInsets.only(bottom: 4),
                   itemCount: products.length,
                   itemBuilder: (context, index) {
                     final product = products[index];
-                    return InkWell(
+                    return ProductCard(
+                      product: product,
+                      showBrand: false,
+                      showPrice: true,
+                      showStock: true,
                       onTap: () => _addToCart(product),
-                      borderRadius: BorderRadius.circular(10),
-                      child: Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: _Palette.bg,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: _Palette.cardBorder),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              width: 34,
-                              height: 34,
-                              decoration: BoxDecoration(
-                                color: _Palette.blue.withOpacity(0.10),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Icon(Icons.inventory_2_outlined,
-                                  color: _Palette.blue, size: 18),
-                            ),
-                            const Spacer(),
-                            Text(product.name,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 13)),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Rs ${product.salePrice.toStringAsFixed(0)}',
-                              style: TextStyle(
-                                  color: _Palette.blue,
-                                  fontWeight: FontWeight.bold),
-                            ),
-                            Text(
-                                'Stock: ${product.currentStock.toStringAsFixed(0)}',
-                                style: const TextStyle(
-                                    color: Colors.grey, fontSize: 11)),
-                          ],
-                        ),
-                      ),
                     );
                   },
                 );
@@ -732,17 +698,35 @@ class _CounterSaleScreenState extends State<CounterSaleScreen> {
                             overflow: TextOverflow.ellipsis),
                       ),
                       SizedBox(
-                        width: 46,
+                        width: 58,
                         child: TextFormField(
                           initialValue: item.quantity.toStringAsFixed(0),
-                          style: const TextStyle(color: Colors.white),
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15),
+                          cursorColor: Colors.white,
                           keyboardType: TextInputType.number,
                           textAlign: TextAlign.center,
-                          decoration: const InputDecoration(
+                          // The app theme gives every input a WHITE fill, which
+                          // made this white quantity invisible on the dark
+                          // panel. Use a see-through fill so the number shows.
+                          decoration: InputDecoration(
                             isDense: true,
-                            enabledBorder: UnderlineInputBorder(
-                                borderSide:
-                                BorderSide(color: Colors.white38)),
+                            filled: true,
+                            fillColor: Colors.white.withOpacity(0.12),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 4, vertical: 8),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide:
+                              const BorderSide(color: Colors.white38),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: const BorderSide(
+                                  color: Colors.white, width: 1.5),
+                            ),
                           ),
                           onFieldSubmitted: (v) => _updateQty(
                               index, double.tryParse(v) ?? item.quantity),

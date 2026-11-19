@@ -54,6 +54,12 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
   bool _meLoaded = false;
   StreamSubscription? _meSub;
 
+  // Branch stored on the login profile (users/{uid}). The security rules use
+  // THIS value, so it must match the employee record's branch.
+  String _loginBranch = '';
+  bool _loginLoaded = false;
+  StreamSubscription? _loginSub;
+
   String selectedKey = 'dashboard';
   bool sidebarCollapsed = false;
   final Set<String> _expandedGroups = {};
@@ -111,6 +117,16 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
       _meLoaded = true;
       return;
     }
+    _loginSub = _userService.streamUserProfile(uid).listen((doc) {
+      if (!mounted) return;
+      setState(() {
+        _loginBranch = (doc.data()?['branchId'] ?? '').toString();
+        _loginLoaded = true;
+      });
+    }, onError: (_) {
+      if (mounted) setState(() => _loginLoaded = true);
+    });
+
     _meSub = _employeeService.streamEmployeeByUid(uid).listen((e) {
       if (!mounted) return;
       setState(() {
@@ -132,6 +148,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
   @override
   void dispose() {
     _meSub?.cancel();
+    _loginSub?.cancel();
     super.dispose();
   }
 
@@ -529,7 +546,7 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
   // ================= BODY ROUTER =================
 
   Widget _buildBody() {
-    if (!_meLoaded) {
+    if (!_meLoaded || !_loginLoaded) {
       return const Padding(
         padding: EdgeInsets.all(60),
         child: Center(child: CircularProgressIndicator()),
@@ -537,10 +554,11 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
     }
     final me = _me;
     if (me == null || me.branchId.isEmpty) return _noBranch();
+    if (_loginBranch != me.branchId) return _notSynced();
     return _buildBodyInner();
   }
 
-  Widget _noBranch() {
+  Widget _infoCard(IconData icon, String title, String message) {
     return Center(
       child: Container(
         constraints: const BoxConstraints(maxWidth: 440),
@@ -551,27 +569,37 @@ class _EmployeeDashboardState extends State<EmployeeDashboard> {
           borderRadius: BorderRadius.circular(14),
           boxShadow: const [BoxShadow(color: Color(0x10000000), blurRadius: 10)],
         ),
-        child: const Column(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.store_mall_directory_outlined,
-                size: 48, color: Color(0xFFE67E00)),
-            SizedBox(height: 14),
-            Text('No branch assigned',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-            SizedBox(height: 8),
-            Text(
-              'Your account is not linked to a branch yet, so no data can be '
-                  'shown. Please ask the admin to set your branch on your '
-                  'Employee record.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey),
-            ),
+            Icon(icon, size: 48, color: const Color(0xFFE67E00)),
+            const SizedBox(height: 14),
+            Text(title,
+                style:
+                const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            Text(message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.grey)),
           ],
         ),
       ),
     );
   }
+
+  Widget _noBranch() => _infoCard(
+    Icons.store_mall_directory_outlined,
+    'No branch assigned',
+    'Your account is not linked to a branch yet, so no data can be shown. '
+        'Please ask the admin to set your branch on your Employee record.',
+  );
+
+  Widget _notSynced() => _infoCard(
+    Icons.sync_problem_outlined,
+    'Account setup incomplete',
+    'Your login is not linked to your branch yet. Please ask the admin to '
+        'open your Employee record and press Save, then log in again.',
+  );
 
   Widget _buildBodyInner() {
     switch (selectedKey) {

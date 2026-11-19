@@ -18,6 +18,12 @@ void setSelectedBranch(String? id, String? name) {
   selectedBranchName.value = name;
 }
 
+/// The branch this login is fixed to (Manager), or null for everyone else.
+/// Services use it to ask Firestore for ONLY that branch's documents, which
+/// is what lets the security rules block every other branch.
+String? get lockedBranchId =>
+    branchLocked.value ? selectedBranchId.value : null;
+
 /// Pins the whole app to one branch (used for Manager logins).
 void lockToBranch(String id, String name) {
   selectedBranchId.value = id;

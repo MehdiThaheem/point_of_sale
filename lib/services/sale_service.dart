@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/branch_filter.dart';
 import '../models/sales.dart';
 
 class SaleService {
@@ -7,12 +8,23 @@ class SaleService {
   FirebaseFirestore.instance.collection('sales');
 
   Stream<List<Sale>> streamSales() {
-    return _col
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map((snap) => snap.docs
-        .map((d) => Sale.fromMap(d.id, d.data() as Map<String, dynamic>))
-        .toList());
+    // A Manager's login is fixed to one branch: ask Firestore for only that
+    // branch's documents (the security rules require it) and sort here,
+    // because "branch equals + order by date" would need a composite index.
+    final b = lockedBranchId;
+    final Query q = b == null
+        ? _col.orderBy('createdAt', descending: true)
+        : _col.where('branchId', isEqualTo: b);
+    return q.snapshots().map((snap) {
+      final list = snap.docs
+          .map((d) => Sale.fromMap(d.id, d.data() as Map<String, dynamic>))
+          .toList();
+      if (b != null) {
+        int ms(Sale x) => x.createdAt?.millisecondsSinceEpoch ?? 0;
+        list.sort((x, y) => ms(y).compareTo(ms(x)));
+      }
+      return list;
+    });
   }
 
   // Simple running invoice counter — good enough for a single-till shop.

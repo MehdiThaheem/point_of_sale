@@ -12,6 +12,7 @@ class Quotation {
   final List<SaleItem> items;
   final double discount;
   final bool discountIsPercent;
+  final String branchId; // which branch's counter parked it
   final Timestamp? createdAt;
 
   Quotation({
@@ -22,6 +23,7 @@ class Quotation {
     required this.items,
     this.discount = 0,
     this.discountIsPercent = false,
+    this.branchId = '',
     this.createdAt,
   });
 
@@ -38,6 +40,7 @@ class Quotation {
           .toList(),
       discount: (map['discount'] ?? 0).toDouble(),
       discountIsPercent: map['discountIsPercent'] ?? false,
+      branchId: map['branchId'] ?? '',
       createdAt: map['createdAt'],
     );
   }
@@ -50,6 +53,7 @@ class Quotation {
       'items': items.map((e) => e.toMap()).toList(),
       'discount': discount,
       'discountIsPercent': discountIsPercent,
+      'branchId': branchId,
       'createdAt': createdAt ?? FieldValue.serverTimestamp(),
     };
   }

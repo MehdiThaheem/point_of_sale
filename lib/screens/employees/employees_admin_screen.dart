@@ -299,6 +299,31 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
     );
   }
 
+  // Copies each employee's branch onto their login profile (users/{uid}).
+  // The security rules read the branch from there, so Managers and Counter
+  // Sale staff see "Account setup incomplete" until this has been done.
+  Future<void> _syncLogins(List<Employee> employees) async {
+    var done = 0;
+    var failed = 0;
+    for (final e in employees) {
+      if (e.uid.isEmpty) continue; // no login linked to this employee
+      try {
+        await _userService.setBranch(uid: e.uid, branchId: e.branchId);
+        done++;
+      } catch (_) {
+        failed++;
+      }
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(failed == 0
+            ? 'Synced $done login(s) with their branch.'
+            : 'Synced $done login(s), $failed failed.'),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentMonth = _currentMonthLabel();
@@ -391,6 +416,16 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                             ),
                           ],
                         ),
+                        // Admin only: link every listed login to its branch.
+                        if (!branchLocked.value)
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton.icon(
+                              onPressed: () => _syncLogins(employees),
+                              icon: const Icon(Icons.sync, size: 18),
+                              label: const Text('Sync login branches'),
+                            ),
+                          ),
                         const SizedBox(height: 12),
                         if (employees.isEmpty)
                           const Padding(

@@ -41,6 +41,18 @@ class RoleRouter extends StatelessWidget {
           );
         }
 
+        // Self-registered accounts stay 'pending' until an admin approves
+        // them; the security rules refuse them any data until then.
+        final status = (data['status'] ?? 'active').toString();
+        if (status != 'active') {
+          return _errorScreen(
+            context,
+            status == 'pending'
+                ? 'Your account is waiting for admin approval.'
+                : 'Your account is not active. Please contact the admin.',
+          );
+        }
+
         switch (data['role']) {
           case 'admin':
             return const AdminDashboard();

@@ -8,6 +8,7 @@ import '../../services/product_service.dart';
 import '../../services/quotation_service.dart';
 import '../../services/sale_service.dart';
 import '../../utils/branch_context.dart';
+import '../../widgets/product_card.dart';
 
 class _Palette {
   static const navy = Color(0xFF0B1F3A);
@@ -37,6 +38,8 @@ class _QuickSaleScreenState extends State<QuickSaleScreen> {
   final TextEditingController _customerNameController =
   TextEditingController();
   final TextEditingController _poController = TextEditingController();
+  final TextEditingController _productSearchController =
+  TextEditingController();
   final TextEditingController _priceController = TextEditingController();
   final TextEditingController _qtyController =
   TextEditingController(text: '1');
@@ -75,7 +78,12 @@ class _QuickSaleScreenState extends State<QuickSaleScreen> {
   double get _remaining => _net - _paid;
 
   void _addRow() {
-    if (_selectedProduct == null) return;
+    if (_selectedProduct == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tap a product first.')),
+      );
+      return;
+    }
     final qty = double.tryParse(_qtyController.text.trim()) ?? 0;
     final price = double.tryParse(_priceController.text.trim()) ??
         _selectedProduct!.salePrice;
@@ -339,6 +347,75 @@ class _QuickSaleScreenState extends State<QuickSaleScreen> {
 
   // ================= SALE FORM PANEL =================
 
+  // Same product cards as the Counter Sale screen, but they show ONLY the
+  // product name and its brand. Tap a card to pick the product; the price
+  // and quantity are then filled in below as before.
+  Widget _buildProductPicker(List<Product> products) {
+    final q = _productSearchController.text.trim().toLowerCase();
+    final list = q.isEmpty
+        ? products
+        : products
+        .where((p) =>
+    p.name.toLowerCase().contains(q) ||
+        p.brandName.toLowerCase().contains(q))
+        .toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: _productSearchController,
+          decoration: InputDecoration(
+            hintText: 'Search Product...',
+            prefixIcon: const Icon(Icons.search),
+            filled: true,
+            fillColor: _Palette.bg,
+            isDense: true,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
+            ),
+          ),
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 290,
+          child: list.isEmpty
+              ? const Center(
+            child: Text('No products found',
+                style: TextStyle(color: Colors.grey)),
+          )
+              : GridView.builder(
+            gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 190,
+              mainAxisExtent: ProductCard.heightFor(
+                  showPrice: false, showStock: false),
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+            ),
+            padding: const EdgeInsets.only(bottom: 4),
+            itemCount: list.length,
+            itemBuilder: (context, index) {
+              final product = list[index];
+              // Only the product name and its brand are shown here.
+              return ProductCard(
+                product: product,
+                showBrand: true,
+                selected: _selectedProduct?.id == product.id,
+                onTap: () => setState(() {
+                  _selectedProduct = product;
+                  _priceController.text =
+                      product.salePrice.toStringAsFixed(0);
+                }),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildSaleForm() {
     return _panelShell(
       'Sale',
@@ -417,22 +494,33 @@ class _QuickSaleScreenState extends State<QuickSaleScreen> {
                   );
 
                   final productField = _field(
-                    'Product',
-                    DropdownButtonFormField<Product>(
-                      value: _selectedProduct,
-                      isExpanded: true,
-                      decoration: _decoration(hint: 'Select Product'),
-                      items: products
-                          .map((p) => DropdownMenuItem(
-                          value: p, child: Text(p.name)))
-                          .toList(),
-                      onChanged: (v) {
-                        setState(() {
-                          _selectedProduct = v;
-                          _priceController.text =
-                              v?.salePrice.toStringAsFixed(0) ?? '';
-                        });
-                      },
+                    'Selected Product',
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: _Palette.cardBorder),
+                      ),
+                      child: Text(
+                        _selectedProduct == null
+                            ? 'Tap a product above'
+                            : (_selectedProduct!.brandName.isEmpty
+                            ? _selectedProduct!.name
+                            : '${_selectedProduct!.name}  •  ${_selectedProduct!.brandName}'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: _selectedProduct == null
+                              ? Colors.grey
+                              : Colors.black87,
+                          fontWeight: _selectedProduct == null
+                              ? FontWeight.normal
+                              : FontWeight.w600,
+                        ),
+                      ),
                     ),
                   );
                   final priceField = _field(
@@ -508,6 +596,8 @@ class _QuickSaleScreenState extends State<QuickSaleScreen> {
                     children: [
                       topRow,
                       const SizedBox(height: 16),
+                      _buildProductPicker(products),
+                      const SizedBox(height: 12),
                       productRow,
                       const SizedBox(height: 16),
                       _buildItemsTable(),

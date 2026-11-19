@@ -11,6 +11,12 @@ class UserService {
     required String role,
     String username = '',
     String designation = '',
+    // Which branch this login belongs to (Managers / Counter Sale). The
+    // Firestore rules read it to decide which branch's data they may see.
+    String branchId = '',
+    // 'active' for accounts an admin creates; self-registered accounts are
+    // 'pending' until an admin approves them.
+    String status = 'active',
   }) async {
     await _firestore.collection('users').doc(uid).set({
       'uid': uid,
@@ -20,8 +26,20 @@ class UserService {
       'phone': phone,
       'role': role,
       'designation': designation,
-      'status': 'active',
+      'branchId': branchId,
+      'status': status,
       'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  // Keeps the login's branch in step with the employee record (admin only,
+  // enforced by the security rules).
+  Future<void> setBranch({
+    required String uid,
+    required String branchId,
+  }) async {
+    await _firestore.collection('users').doc(uid).update({
+      'branchId': branchId,
     });
   }
 
